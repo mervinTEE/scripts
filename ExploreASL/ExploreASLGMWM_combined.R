@@ -182,6 +182,6 @@ combinedall <- combinedall[-1, , drop = FALSE]
 skim(combinedall)
 
 
-write.csv(x = combinedall, "CBFATTTEX_values.csv")
+write.csv(x = combinedall, "CBFATTTEX_values.csv", row.names=FALSE)
 
 
