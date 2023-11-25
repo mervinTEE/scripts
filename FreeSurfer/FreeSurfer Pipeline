@@ -1,0 +1,59 @@
+# Converting DICOM to NIFTI
+# dcm2niix arguments [path to dicom] [formet of filename] [output path]
+dcm2niix -p y -z y -o "/mnt/d" -f "%n_%p" .
+
+# Processing multiple subjects in parallel
+# 20 can be replace with other numbers to control the number of parallel jobs
+
+# This code list all nifitis and pipe into recon-all in parallel
+ls */*.nii | parallel --jobs 20 recon-all -s {.} -i {} -all -qcache
+
+# Run this code to process all subjects for hippocampus subfield segmentation
+# To change the following fields [subj folder path], [log output path]
+for folder in `ls -d SPAC*`; do
+    segmentHA_T1.sh $folder ~/Desktop/MRI/MT/SPACE_FS_nifitis >> $folder_output.txt
+done
+
+
+#Quality Checks
+
+
+#Setting up FSGD
+## Nclasses = 2 (Number of groups)
+## Nvariables = 1 (Number of variables)
+## Regressors
+###Nregressors = Nclasses*(Nvariables+1) = 2*(1+1) = 4
+###Regressor1: ones for subjects in Group 1, 0 otherwise. Codes intercept/mean for Group 1
+###Regressor2: ones for subjects in Group 2, 0 otherwise. Codes intercept/mean for Group 2
+###Regressor3: age for subjects in Group 1, 0 otherwise. Codes age slope for Group 1
+###Regressor4: age for subjects in Group 2, 0 otherwise. Codes age slope for Group 2
+
+
+GroupDescriptorFile 1
+Title Age
+Class Intervention
+Class Control
+Variables Age
+Input subjIDXXX Intervention 30
+... # to fill up with the remaining subjects
+Input subjIDXXX Control 30
+
+#Setting up Contrast
+## Contrast 1: Difference between group intercepts
+1 -1 0 0
+## Contrast 2: Difference between group age slopes
+0 0 1 -1
+## Contrast 3: Group mean of intercepts differ from 0?
+## This is a t-test with (Intervention + Control)/2)
+0.5 0.5 0 0
+## Contrast 4: Group age mean differ from 0?
+## This is a t-test with (Intervention + Control)/2)
+0 0 0.5 0.5
+
+#Group processing
+mri_glmfit \
+--glmdir [path to subj] \
+--y y.mgh \
+--fsgd [path to fsgd] \
+--C [path to contrast] \
+--C [path to contrast]
