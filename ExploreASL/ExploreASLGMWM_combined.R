@@ -1,11 +1,12 @@
-library(dplyr)
-library(tidyverse)
+library(pacman)
+p_load(dplyr, tidyverse)
+# dir <- "C:/Users/Mervin/Desktop/Analysis/NEURO-BMC/Determinants/Determinants/Data/ASL"
+# 
+# setwd("C:/Users/Mervin/Desktop/Analysis/NEURO-BMC/Determinants/Determinants/Data/ASL")
 
-dir <- "C:/Users/Mervin/Desktop/Analysis/NEURO-BMC/Determinants/Determinants/Data/ASL"
+dir <- "/home/admin/Desktop/Analysis/NEURO_determinants/Data/combined/"
 
-setwd("C:/Users/Mervin/Desktop/Analysis/NEURO-BMC/Determinants/Determinants/Data/ASL")
-
-
+setwd("/home/admin/Desktop/Analysis/NEURO_determinants/Data/combined/")
 
 
 # CBF -------------------------------------------------------------------------------------------------------------
