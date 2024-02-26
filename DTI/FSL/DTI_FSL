@@ -1,0 +1,45 @@
+#Converting DICOM to NIFTI
+dcm2niix -p y -z y -d 9 -o ../DTIniftis -f "%n_%s_%d" ./
+
+#Extracting standalone volume without diffusion weighting 
+fslroi <dwidata> nodif 0 1 #volume should appear bright
+fslroi NEURO006_21_dMRI_dir124_PA.nii.gz nodif_PA 0 1
+fslroi NEURO006_19_dMRI_b0_AP.nii.gz nodif_AP 0 1
+
+#Merging b0 images
+fslmerge -t AP_PA_b0 nodif_AP.nii.gz nodif_PA.nii.gz
+
+#Create a acqparams.txt file
+echo "0 1 0 0.61 \n0 -1 0 0.61" > acqparams.txt 
+
+#Topup command
+topup --imain=AP_PA_b0.nii.gz --datain=acqparams.txt --config=b02b0.cnf --out=topup_AP_PA_b0 
+
+############################################### Old Code ###############################################
+# topup
+source ~/.bashrc
+fslroi dMRI_dir124_AP.nii.gz B0_PA 0 1
+fslroi dMRI_b0_AP.nii.gz B0_AP 0 1
+fslmerge -t AP_PA_B0 B0_AP.nii.gz B0_PA.nii.gz
+# Create acqparams.txt
+# May need to do dos2unix acqparams.txt
+topup --imain=AP_PA_B0.nii.gz --datain=acqparams.txt --config=b02b0.cnf --out=topup_AP_PA_scan
+flseyes topup_AP_PA_scan_fieldcoef.nii.gz
+#applytopup is not necessary, this is to generate nii for preview
+applytopup --imain=B0_AP.nii.gz,B0_PA.nii.gz --inindex=1,2 --datain=acqparams.txt --topup=topup_AP_PA_scan --out=hifi_b0_AP_PA.nii.gz
+
+# eddy
+fslmaths hifi_b0_AP_PA.nii.gz -Tmean hifi_b0_AP_PA.nii.gz
+bet hifi_b0_AP_PA.nii.gz hifi_b0_AP_PA_brain -m -f 0.2
+
+#Creating Index file
+myVar=$(wc -w < dMRI_dir124_PA.bval)                                                    20:19:50
+indx=""
+for ((i=1; i<=myVar; i+=1)); do indx="$indx 1"; done
+echo $indx > index.txt
+
+#creating acqparams that matches dwi volumes
+dim4=$(fslinfo dMRI_dir124_PA.nii.gz | awk '/dim4/{printf "%.0f", $2}'); for ((i=1; i<=dim4; i++)); do printf "0 1 0 0.0732\n" >> acqparams.txt; done
+
+
+eddy --imain=dMRI_dir124_PA.nii.gz --mask=hifi_b0_AP_PA_brain_mask.nii.gz --acqp=acqparams.txt --index=index.txt --bvecs=dMRI_dir124_PA.bvec --bvals=dMRI_dir124_PA.bval --fwhm=0 --topup=topup_AP_PA_scan --flm=quadratic --out=eddy_unwarped_images --verbose --data_is_shelled

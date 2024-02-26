@@ -1,0 +1,5 @@
+export SUBJECTS_DIR=`pwd`
+subj=NEURO006_fs
+echo $SUBJECTS_DIR $subj
+
+dt_recon --b /home/admin/Desktop/MRI/MT/NEURO_DTI/NEURO006/dMRI_dir124_PA/bval.dat /home/admin/Desktop/MRI/MT/NEURO_DTI/NEURO006/dMRI_dir124_PA/bvec.dat --i /home/admin/Desktop/MRI/MT/NEURO_DTI/NEURO006/dMRI_dir124_PA/21_dMRI_dir124_PA.nii.gz --s $subj --o $SUBJECTS_DIR/$subj/dtrecon
