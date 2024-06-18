@@ -1,0 +1,39 @@
+pip install nibabel
+pip install scipy
+pip install matplotlib
+
+
+import nibabel as nib
+import numpy as np
+from scipy.spatial import ConvexHull
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+# Load NIfTI file
+nifti_img = nib.load('/home/admin/Desktop/MRI/MT/HARMY/Convexhull/HD673/ples_lga_0.3_rmHD673_6_T2_tse_FLAIR_AX-1.dcm_LSTF.nii')
+data = nifti_img.get_fdata()
+
+# Get voxel coordinates where brain mask is non-zero
+non_zero_coords = np.array(np.where(data != 0)).T
+
+# Create convex hull
+convex_hull = ConvexHull(non_zero_coords)
+
+
+
+
+# Visualize convex hull
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+# Plot original points
+ax.scatter(non_zero_coords[:, 0], non_zero_coords[:, 1], non_zero_coords[:, 2], c='b', marker='o')
+
+# Plot convex hull
+for simplex in convex_hull.simplices:
+    simplex = np.append(simplex, simplex[0])  # Close the loop
+    ax.plot(non_zero_coords[simplex, 0], non_zero_coords[simplex, 1], non_zero_coords[simplex, 2], 'r-')
+
+plt.show()
+
+# Save convex hull to a file
+np.save('convex_hull.npy', convex_hull.vertices)
