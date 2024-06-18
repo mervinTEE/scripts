@@ -21,7 +21,7 @@ process_dir() {
     # Run the script with taskset to limit CPU core usage
     # 'taskset' is used to limit how many cores are allocated
     # 0-19 means cores 0 to 19, change based on your system configuration
-    taskset -c 0-19 bash -c "source /home/admin/Desktop/MRIapp/scripts/DTI/MRtrix_Analysis_Scripts-master/01_MRtrix_Preproc_AP_Direction_personal.sh $ROOTFOLDER $SUB_ID 4"
+    taskset -c 0-19 bash -c "source /home/admin/Desktop/MRIapp/scripts/DTI/MRtrix/Preproc/01_MRtrix_Preproc_AP_Direction_single.sh $ROOTFOLDER $SUB_ID 4"
 }
 
 export ROOTFOLDER  # Export ROOTFOLDER so it's available in the parallel process

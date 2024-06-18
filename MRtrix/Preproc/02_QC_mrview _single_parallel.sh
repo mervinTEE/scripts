@@ -46,10 +46,38 @@ mrview $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc_unbiase
 # View the sifted tracks in mrview
 # Uncomment the following line of code if you used tcksift; otherwise, tcksift2 will output a text file with weightings that are used for later commands (e.g., creating the connectome)
 #mrview dwi_den_preproc_unbiased.mif -tractography.load sift_1mio.tck
-
+#######################Single Subject################################
 cd /home/admin/Desktop/MRI/MT/1DTI/dwifslpreproc-tmp-GGNO8O
 totalSlices=`mrinfo dwi.mif | grep Dimensions | awk '{print $6 * $8}'`
 totalOutliers=`awk '{ for(i=1;i<=NF;i++)sum+=$i } END { print sum }' dwi_post_eddy.eddy_outlier_map`
 echo "If the following number is greater than 10, you may have to discard this subject because of too much motion or corrupted slices"
 echo "scale=5; ($totalOutliers / $totalSlices * 100)/1" | bc | tee percentageOutliers.txt
 cd ..
+#########################################################################################################################
+#!/bin/bash
+
+ROOTFOLDER="/home/admin/Desktop/MRI/MT/5DTI"
+OUTPUT_FILE="$ROOTFOLDER/derivatives/MRtrix3/motionQC.csv"
+
+# Initialize the CSV file
+echo "SubjectID,PercentageOutliers" > $OUTPUT_FILE
+
+# Loop over each subject folder
+for dir in $ROOTFOLDER/rawdata/*; do
+    # Extract the subject ID from the directory name
+    SUB=$(basename $dir)
+    
+    # Change to the subject's tmp directory
+    cd $ROOTFOLDER/tmp/$SUB || continue
+    totalSlices=$(mrinfo dwi.mif | grep Dimensions | awk '{print $6 * $8}')
+    totalOutliers=$(awk '{ for(i=1;i<=NF;i++)sum+=$i } END { print sum }' dwi_post_eddy.eddy_outlier_map)
+    percentageOutliers=$(echo "scale=5; ($totalOutliers / $totalSlices * 100)/1" | bc)
+    
+    # Append the results to the CSV file
+    echo "$SUB,$percentageOutliers" >> $OUTPUT_FILE
+    
+    # Return to the previous directory
+    cd $ROOTFOLDER
+done
+
+echo "Motion QC completed. Results are stored in $OUTPUT_FILE."

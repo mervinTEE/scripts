@@ -49,3 +49,4 @@ totalOutliers=`awk '{ for(i=1;i<=NF;i++)sum+=$i } END { print sum }' dwi_post_ed
 echo "If the following number is greater than 10, you may have to discard this subject because of too much motion or corrupted slices"
 echo "scale=5; ($totalOutliers / $totalSlices * 100)/1" | bc | tee percentageOutliers.txt
 cd ..
+

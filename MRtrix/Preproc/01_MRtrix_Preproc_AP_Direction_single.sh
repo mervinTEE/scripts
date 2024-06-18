@@ -38,9 +38,9 @@ THREADS=${3:-4}
 ######################################################################
 
 # Also consider doing Gibbs denoising (using mrdegibbs). Check your diffusion data for ringing artifacts before deciding whether to use it
-mkdir -p $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi $ROOTFOLDER/derivatives/MRtrix3/${SUB}/anat $ROOTFOLDER/derivatives/MRtrix3/${SUB}/fmap
+mkdir -p $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi $ROOTFOLDER/derivatives/MRtrix3/${SUB}/anat $ROOTFOLDER/derivatives/MRtrix3/${SUB}/fmap $ROOTFOLDER/tmp
 mrconvert -force $ROOTFOLDER/rawdata/${SUB}/dwi/${SUB}_dwi.nii.gz $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_raw_dwi.mif -fslgrad $ROOTFOLDER/rawdata/${SUB}/dwi/${SUB}_dwi.bvec $ROOTFOLDER/rawdata/${SUB}/dwi/${SUB}_dwi.bval
-dwidenoise -force -nthreads ${THREADS} $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_raw_dwi.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den.mif -noise $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_noise.mif
+dwidenoise -force -nthreads ${THREADS} $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_raw_dwi.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den.mif -noise $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_noise.mif -scratch $ROOTFOLDER/tmp/${SUB}
 
 # Extract the b0 images from the diffusion data acquired in the PA direction
 dwiextract -force $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_raw_dwi.mif - -bzero | mrmath - mean $ROOTFOLDER/derivatives/MRtrix3/${SUB}/fmap/${SUB}_mean_b0_PA.mif -axis 3
@@ -62,13 +62,13 @@ mrconvert -force $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den.mif -
 
 # Runs the dwipreproc command, which is a wrapper for eddy and topup. This step takes about 2 hours on an iMac desktop with 8 cores
 # --slm=none for single/multi-shell, linear for single-shell
-dwifslpreproc -force -nthreads ${THREADS} $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_dir124.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc.mif -nocleanup -pe_dir PA -rpe_pair -se_epi $ROOTFOLDER/derivatives/MRtrix3/${SUB}/fmap/${SUB}_b0_pair.mif -eddy_options " --slm=none --data_is_shelled"
+dwifslpreproc -force -nthreads ${THREADS}  -scratch $ROOTFOLDER/tmp/${SUB} $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_dir124.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc.mif -nocleanup -pe_dir PA -rpe_pair -se_epi $ROOTFOLDER/derivatives/MRtrix3/${SUB}/fmap/${SUB}_b0_pair.mif -eddy_options " --slm=none --data_is_shelled"
 
 # Performs bias field correction. Needs ANTs to be installed in order to use the "ants" option (use "fsl" otherwise)
-dwibiascorrect -force -nthreads ${THREADS} ants $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc_unbiased.mif -bias $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_bias.mif
+dwibiascorrect -force -nthreads ${THREADS} -scratch $ROOTFOLDER/tmp/${SUB} ants $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc_unbiased.mif -bias $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_bias.mif
 
 # Create a mask for future processing steps
-dwi2mask -force $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc_unbiased.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_mask.mif
+dwi2mask -force -scratch $ROOTFOLDER/tmp/${SUB} $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc_unbiased.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_mask.mif
 
 
 ########################### STEP 2 ###################################
@@ -76,7 +76,7 @@ dwi2mask -force $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_prepro
 ######################################################################
 
 # Create a basis function from the subject's DWI data. The "dhollander" function is best used for multi-shell acquisitions; it will estimate different basis functions for each tissue type. For single-shell acquisition, use the "tournier" function instead
-dwi2response -force -nthreads ${THREADS} dhollander $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc_unbiased.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_wm.txt $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_gm.txt $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_csf.txt -voxels $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_voxels.mif
+dwi2response -force -nthreads ${THREADS} -scratch $ROOTFOLDER/tmp/${SUB} dhollander $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc_unbiased.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_wm.txt $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_gm.txt $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_csf.txt -voxels $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_voxels.mif
 
 # Performs multishell-multitissue constrained spherical deconvolution, using the basis functions estimated above
 dwi2fod -force -nthreads ${THREADS} msmt_csd $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den_preproc_unbiased.mif -mask $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_mask.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_wm.txt $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_wmfod.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_gm.txt $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_gmfod.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_csf.txt $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_csffod.mif
