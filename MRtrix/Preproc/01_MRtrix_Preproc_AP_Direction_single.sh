@@ -40,7 +40,7 @@ THREADS=${3:-4}
 # Also consider doing Gibbs denoising (using mrdegibbs). Check your diffusion data for ringing artifacts before deciding whether to use it
 mkdir -p $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi $ROOTFOLDER/derivatives/MRtrix3/${SUB}/anat $ROOTFOLDER/derivatives/MRtrix3/${SUB}/fmap $ROOTFOLDER/tmp
 mrconvert -force $ROOTFOLDER/rawdata/${SUB}/dwi/${SUB}_dwi.nii.gz $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_raw_dwi.mif -fslgrad $ROOTFOLDER/rawdata/${SUB}/dwi/${SUB}_dwi.bvec $ROOTFOLDER/rawdata/${SUB}/dwi/${SUB}_dwi.bval
-dwidenoise -force -nthreads ${THREADS} $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_raw_dwi.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den.mif -noise $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_noise.mif -scratch $ROOTFOLDER/tmp/${SUB}
+dwidenoise -force -nthreads ${THREADS} $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_raw_dwi.mif $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_dwi_den.mif -noise $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_noise.mif
 
 # Extract the b0 images from the diffusion data acquired in the PA direction
 dwiextract -force $ROOTFOLDER/derivatives/MRtrix3/${SUB}/dwi/${SUB}_raw_dwi.mif - -bzero | mrmath - mean $ROOTFOLDER/derivatives/MRtrix3/${SUB}/fmap/${SUB}_mean_b0_PA.mif -axis 3
