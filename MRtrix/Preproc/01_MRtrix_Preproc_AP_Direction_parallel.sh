@@ -1,11 +1,11 @@
 # Find all subject folders containing "sub-" and get their basenames
-ROOTFOLDER=/home/admin/Desktop/MRI/MT/5DTI
+ROOTFOLDER=/home/admin/Desktop/MRI/MT/SPACE_DTI
 
 # Loop over each subject folder, extract the basename, and call the shell script
 for dir in $ROOTFOLDER/rawdata/*; do
     SUB_ID=$(basename "$dir")
     echo "Processing $SUB_ID"
-    source /home/admin/Desktop/MRIapp/scripts/DTI/MRtrix_Analysis_Scripts-master/01_MRtrix_Preproc_AP_Direction_personal.sh $ROOTFOLDER $SUB_ID 20
+    source /home/admin/Desktop/MRIapp/scripts/MRtrix/Preproc/01_MRtrix_Preproc_AP_Direction_single.sh $ROOTFOLDER $SUB_ID 20
 done
 ######################## Code Above is working fine, for SINGLE subj at a time ########################
 ######################################################################################################
