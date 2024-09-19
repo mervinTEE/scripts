@@ -1,7 +1,7 @@
 #!/bin/bash
-path=~/Desktop/MRI/MT/SPACE_FS_nifitis
+path=/mnt/hdd/MT/SPACE/SPACE_v2/SPACE_FS_V2
 sleep 1
-cd ~/Desktop/MRI/MT/SPACE_FS_nifitis
+cd /mnt/hdd/MT/SPACE/SPACE_v2/SPACE_FS_V2
 echo "This bash script will create table from ?.stats files"
 echo "Written by Jamaan Alghamdi & Dr. Vanessa Sluming"
 echo "University of Liverpool"
@@ -17,7 +17,7 @@ sleep 1
 source $FREESURFER_HOME/SetUpFreeSurfer.sh
 sleep 1
 
-export SUBJECTS_DIR=~/Desktop/MRI/MT/SPACE_FS_nifitis
+export SUBJECTS_DIR=/mnt/hdd/MT/SPACE/SPACE_v2/SPACE_FS_V2
 list="`ls -d SPAC*/`"
 asegstats2table --subjects $list --meas volume --skip --statsfile wmparc.stats --all-segs --tablefile wmparc_stats.txt
 asegstats2table --subjects $list --meas volume --skip --tablefile aseg_stats.txt
