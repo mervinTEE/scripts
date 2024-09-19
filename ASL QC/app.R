@@ -16,6 +16,33 @@ ui <- dashboardPage(
         )
     ),
     dashboardBody(
+        tags$script(HTML("
+            $(document).on('keydown', function(e) {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                    return;
+                }
+                switch(e.which) {
+                    case 49: // 1 key
+                        $('#cbf').click();
+                        break;
+                    case 50: // 2 key
+                        $('#vascular').click();
+                        break;
+                    case 51: // 3 key
+                        $('#artifact').click();
+                        break;
+                    case 52: // 4 key
+                        $('#unknown').click();
+                        break;
+                    case 37: // left arrow key
+                        $('#previous').click();
+                        break;
+                    case 39: // right arrow key
+                        $('#next_image').click();
+                        break;
+                }
+            });
+        ")),
         fluidRow(
             column(width = 3,
                    box(width = NULL, solidHeader = TRUE,
@@ -33,12 +60,12 @@ ui <- dashboardPage(
         fluidRow(
             column(width = 12,
                    box(width = NULL,
-                       actionButton("cbf", "CBF"),
-                       actionButton("vascular", "Vascular"),
-                       actionButton("artifact", "Artifact"),
-                       actionButton("unknown", "Unknown"),
-                       actionButton("previous", "Previous"),
-                       actionButton("next_image", "Next")
+                       actionButton("cbf", "CBF (1)"),
+                       actionButton("vascular", "Vascular (2)"),
+                       actionButton("artifact", "Artifact (3)"),
+                       actionButton("unknown", "Unknown (4)"),
+                       actionButton("previous", "Previous (←)"),
+                       actionButton("next_image", "Next (→)")
                    )
             )
         )
