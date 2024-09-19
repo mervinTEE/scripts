@@ -12,10 +12,82 @@ ui <- dashboardPage(
             actionButton("loadDir", "Load Directory"),
             br(),
             br(),
+            selectInput("entries", "Show entries:", 
+                        choices = c(5, 10, 20, 50, 100), 
+                        selected = 10),
             actionButton("saveCSV", "Save to CSV")
         )
     ),
     dashboardBody(
+        tags$head(
+            tags$style(HTML("
+                html, body {
+                    height: 100%;
+                }
+                .content-wrapper {
+                    display: flex;
+                    flex-direction: column;
+                    height: calc(100vh - 50px);
+                }
+                .content {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                }
+                #main-row {
+                    flex: 1;
+                    display: flex;
+                    min-height: 0;
+                }
+                #main-row > div {
+                    display: flex;
+                    flex-direction: column;
+                }
+                .table-container {
+                    flex: 1;
+                    overflow: auto;
+                }
+                .table-container .dataTables_wrapper {
+                    width: 100%;
+                }
+                .table-container table {
+                    width: 100% !important;
+                }
+                #image_and_buttons_column {
+                    display: flex;
+                    flex-direction: column;
+                }
+                #image_preview_box {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    overflow: hidden;
+                }
+                #image_preview {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    overflow: hidden;
+                }
+                #image_preview img {
+                    max-width: 100%;
+                    max-height: 100%;
+                    object-fit: contain;
+                }
+                #image_caption {
+                    text-align: center;
+                    margin-top: 10px;
+                }
+                #button-row {
+                    margin-top: 10px;
+                }
+                #button-row .box {
+                    margin-bottom: 0;
+                }
+            "))
+        ),
         tags$script(HTML("
             $(document).on('keydown', function(e) {
                 if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
@@ -44,22 +116,19 @@ ui <- dashboardPage(
             });
         ")),
         fluidRow(
+            id = "main-row",
             column(width = 3,
                    box(width = NULL, solidHeader = TRUE,
                        title = "Data Frame",
-                       DTOutput("grading_table")
+                       div(class = "table-container", DTOutput("grading_table"))
                    )
             ),
-            column(width = 9,
-                   box(width = NULL, height = "600px",
+            column(width = 9, id = "image_and_buttons_column",
+                   box(width = NULL, id = "image_preview_box",
                        title = "Image Preview",
                        uiOutput("image_preview")
-                   )
-            )
-        ),
-        fluidRow(
-            column(width = 12,
-                   box(width = NULL,
+                   ),
+                   box(width = NULL, id = "button-row",
                        actionButton("cbf", "CBF (1)"),
                        actionButton("vascular", "Vascular (2)"),
                        actionButton("artifact", "Artifact (3)"),
@@ -84,7 +153,7 @@ server <- function(input, output, session) {
     observeEvent(input$loadDir, {
         values$dir_path <- input$dir_path
         if (dir.exists(values$dir_path)) {
-            values$image_files <- list.files(values$dir_path, pattern = "\\.(jpg|jpeg)$", full.names = TRUE)
+            values$image_files <- list.files(values$dir_path, pattern = "\\.(jpg|jpeg|png)$", full.names = TRUE)
             values$current_index <- 1
             values$grading_data <- data.frame(
                 filename = basename(values$image_files),
@@ -100,12 +169,20 @@ server <- function(input, output, session) {
         req(values$image_files)
         if (length(values$image_files) > 0) {
             current_file <- values$image_files[values$current_index]
-            img_data <- base64encode(readBin(current_file, "raw", file.info(current_file)$size))
-            tags$figure(
-                style = "width: 100%; height: 500px; display: flex; flex-direction: column; justify-content: center; align-items: center;",
-                tags$img(src = paste0("data:image/jpeg;base64,", img_data), 
-                         style = "max-width: 100%; max-height: 90%; object-fit: contain;"),
-                tags$figcaption(basename(current_file), style = "text-align: center; margin-top: 10px;")
+            ext <- tools::file_ext(current_file)
+            mime_type <- switch(ext,
+                                jpg = "image/jpeg",
+                                jpeg = "image/jpeg",
+                                png = "image/png",
+                                "application/octet-stream")
+            
+            img_data <- base64enc::base64encode(readBin(current_file, "raw", file.info(current_file)$size))
+            tagList(
+                div(id = "image_preview",
+                    tags$img(src = paste0(sprintf("data:%s;base64,", mime_type), img_data), 
+                             style = "max-width: 100%; max-height: 100%; object-fit: contain;")
+                ),
+                tags$p(id = "image_caption", basename(current_file))
             )
         }
     })
@@ -129,24 +206,29 @@ server <- function(input, output, session) {
     updateGrading <- function(grade) {
         values$grading_data$grading[values$current_index] <- grade
         values$current_index <- min(values$current_index + 1, length(values$image_files))
+        dataTableProxy('grading_table') %>% replaceData(values$grading_data)
     }
     
     observeEvent(input$previous, {
         values$current_index <- max(values$current_index - 1, 1)
+        dataTableProxy('grading_table') %>% replaceData(values$grading_data)
     })
     
     observeEvent(input$next_image, {
         values$current_index <- min(values$current_index + 1, length(values$image_files))
+        dataTableProxy('grading_table') %>% replaceData(values$grading_data)
     })
     
     output$grading_table <- renderDT({
         req(values$grading_data)
         total_rows <- nrow(values$grading_data)
-        start_row <- max(1, values$current_index - 5)
-        end_row <- min(total_rows, start_row + 9)
+        entries <- as.numeric(input$entries)
         
-        if (end_row - start_row < 9) {
-            start_row <- max(1, end_row - 9)
+        start_row <- max(1, values$current_index - floor(entries/2))
+        end_row <- min(total_rows, start_row + entries - 1)
+        
+        if (end_row == total_rows) {
+            start_row <- max(1, total_rows - entries + 1)
         }
         
         subset_data <- values$grading_data[start_row:end_row, ]
@@ -154,11 +236,13 @@ server <- function(input, output, session) {
         datatable(
             subset_data,
             options = list(
-                pageLength = 10,
+                pageLength = entries,
+                lengthMenu = list(c(5, 10, 20, 50, 100), c('5', '10', '20', '50', '100')),
                 searching = FALSE,
-                lengthChange = FALSE,
                 info = FALSE,
-                paging = FALSE
+                paging = FALSE,
+                scrollX = TRUE,
+                autoWidth = TRUE
             ),
             rownames = FALSE
         ) %>%
