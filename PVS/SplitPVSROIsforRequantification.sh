@@ -36,6 +36,16 @@ for FILE in "$ROOTFOLDER"/HD*/Segmentation/PVS/*.nii.gz; do
         else
             echo "Source directory $SOURCE_DIR does not exist."
         fi
+
+        # Add logic to collect "HDXXX_ses-01_PVS_All_ROIs_edited"
+        EDITED_DIR="/home/admin/Desktop/MRI/MT/HARMY_PVS/edited/$HD_ID/"
+        EDITED_FILE="${EDITED_DIR}${HD_ID}_ses-01_PVS_All_ROIs_edited.nii.gz"
+        if [[ -f "$EDITED_FILE" ]]; then
+            cp "$EDITED_FILE" "$DIRNAME"
+            echo "Copied $EDITED_FILE to $DIRNAME"
+        else
+            echo "Edited file $EDITED_FILE does not exist."
+        fi
     fi
 done
 

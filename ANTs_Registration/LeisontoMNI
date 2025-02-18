@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# Define file paths
+FLAIR=/mnt/hdd/MT/HARMY/HARMY_BL_WMH/rawdata/HD001/rmHD001_FLAIR.nii.gz
+T1=/mnt/hdd/MT/HARMY/HARMY_BL_WMH/rawdata/HD001/HD001_T1w.nii.gz
+LESION=/mnt/hdd/MT/HARMY/HARMY_BL_WMH/rawdata/HD001/ples_lga_0.3_rmHD001_WMH.nii.gz
+MNI_TEMPLATE=/mnt/hdd/MT/HARMY/HARMY_BL_WMH/rawdata/HD001/mni_icbm152_t1_tal_nlin_sym_09a.nii
+
+
+#ANTS
+# Step 1: Linear registration of FLAIR to T1
+antsRegistrationSyNQuick.sh -d 3 -f $T1 -m $FLAIR -o $OUTPUT_DIR/flair2T1_
+
+# Step 2: Registration of T1 to MNI
+antsRegistrationSyNQuick.sh -d 3 -f $MNI_TEMPLATE -m $T1 -o $OUTPUT_DIR/T1toMNI_
+
+
+# Step 3: Combine transformations
+compositeTransform="$OUTPUT_DIR/flair2MNI_Composite.h5"
+antsApplyTransforms -d 3 -t $OUTPUT_DIR/T1toMNI_1Warp.nii.gz -t $OUTPUT_DIR/T1toMNI_0GenericAffine.mat \
+    -t $OUTPUT_DIR/flair2T1_0GenericAffine.mat -o $compositeTransform
+
+# Step 4: Apply transformation to FLAIR
+antsApplyTransforms -d 3 -i $FLAIR -r $MNI_TEMPLATE -t $OUTPUT_DIR/flair2T1_0GenericAffine.mat -o $OUTPUT_DIR/rmHD001_FLAIR_MNI.nii.gz
+
+# Step 5: Apply transformation to lesion map
+antsApplyTransforms -d 3 -i $LESION -r $MNI_TEMPLATE -t $OUTPUT_DIR/flair2T1_0GenericAffine.mat  -o $OUTPUT_DIR/rmHD001_WMH_MNI.nii.gz
