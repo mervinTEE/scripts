@@ -1,5 +1,6 @@
+#########################################################################################################################*
 ########################################## TO RANDOMISE SUBID AND FILES #################################################
-#########################################################################################################################
+#########################################################################################################################*
 library(fs)      # For file system operations
 library(dplyr)   # For data manipulation
 library(tidyr)   # For data tidying
@@ -87,21 +88,21 @@ for(subject in selected_subjects) {
 write.csv(mapping_df, csv_file, row.names = FALSE)
 
 message(sprintf("Anonymized files have been created for all raters and mapped in %s", csv_file))
-
+#########################################################################################################################*
 ########################################## TO REVERT FILES BACK TO ORIGINAL ID ##########################################
-#########################################################################################################################
+#########################################################################################################################*
 library(data.table)
 library(stringr)
 library(fs)
 
 # Base directory where the subject folders are located
-base_dir <- "/mnt/hdd/MT/NEURO_BMC/NEURO-WMH/derivatives/NEURO-BMC_WMH_Original"
+base_dir <- "/mnt/hdd/MT/HARMY/HARMY_PVS/derivatives/Baseline/RaterSets_50Subjs"
 
 # Remove trailing slash from base_dir if it exists
 base_dir <- sub("/$", "", base_dir)
 
 # Path to the CSV file
-csv_file <- "/mnt/hdd/MT/NEURO_BMC/NEURO-WMH/derivatives/rater_file_mapping.csv"
+csv_data <- read.csv("/mnt/hdd/MT/HARMY/HARMY_PVS/derivatives/Baseline/Rater/HarmyRater_file_mapping.csv", stringsAsFactors = FALSE)
 
 # Create edited folder at the same level as rater folders
 edited_dir <- file.path(base_dir, "edited")
@@ -132,9 +133,6 @@ format_edited_filename <- function(original_subject, rater) {
   # Create the new filename
   sprintf("%s_ses-01_PVS_All_ROIs_edited_%s.nii.gz", original_subject, rater)
 }
-
-# Read the CSV file
-csv_data <- read.csv(csv_file, stringsAsFactors = FALSE)
 
 # Initialize directory mappings list
 dir_mappings <- list()
@@ -215,50 +213,23 @@ for (old_dir in names(dir_mappings)) {
   }
 }
 
-#########################################################################################################################
-
-# Cleaning File formats and names
-# Define the base directory
-base_dir <- "/mnt/hdd/MT/NEURO_BMC/NEURO-WMH/derivatives/NEURO-BMC_WMH_Raterset/edited"
-
-# Find all files with "_edited" in their name within the base directory
-edited_files <- list.files(base_dir, pattern = "_edited\\.nii\\.gz$", recursive = TRUE, full.names = TRUE)
-
-# Loop through each file
-for (file_path in edited_files) {
-        # Extract the directory and file name
-        dir_path <- dirname(dirname(file_path))
-        file_name <- basename(file_path)
-        
-        # Extract the rater name (assumes it is the immediate folder name, e.g., "Rater1")
-        rater_name <- basename(dir_path)
-        
-        # Construct the new file name
-        new_file_name <- sub("(.*_edited)(\\.nii\\.gz$)", paste0("\\1_", rater_name, "\\2"), file_name)
-        
-        # Construct the full path to the new file
-        new_file_path <- file.path(dirname(dir_path), new_file_name)
-        
-        # Rename the file
-        file.rename(file_path, new_file_path)
-}
 
 ############################################################## ICC #########################################################
+
+###################################################################################################################################################*
+################################################################## For TWO RATERS #################################################################
+###################################################################################################################################################*
 ## Library Loading for ICC
 # Load necessary libraries
 library(irr)        # For ICC calculation
 library(dplyr)      # For data manipulation
 library(oro.nifti)  # For reading .nii.gz files
 
-# Define the directory containing the files
-data_dir <- "/mnt/hdd/MT/NEURO_BMC/NEURO-WMH/derivatives/NEURO-BMC_WMH_Original/edited"
 
-
-################################################################## For TWO RATERS #################################################################
 # For TWO Raters
 raters <- list(
-  Rater1 = list.files(data_dir, pattern = "Rater1.nii.gz", full.names = TRUE),
-  Rater2 = list.files(data_dir, pattern = "Rater2.nii.gz", full.names = TRUE)
+  Rater1 = list.files(paste0(base_dir,"/edited"), pattern = "Rater1.nii.gz", full.names = TRUE),
+  Rater2 = list.files(paste0(base_dir,"/edited"), pattern = "Rater2.nii.gz", full.names = TRUE)
 )
 
 # Find max number of files
@@ -360,14 +331,22 @@ print(high_variance_outliers)
 
 
 
+###################################################################################################################################################*
+############################################################# For FOUR RATERS ######################################################################
+###################################################################################################################################################*
+## Library Loading for ICC
+# Load necessary libraries
+library(irr)        # For ICC calculation
+library(dplyr)      # For data manipulation
+library(oro.nifti)  # For reading .nii.gz files
 
-################################################## For FOUR RATERS ########################################################
+
 # For FOUR Raters
 raters <- list(
-  Rater1 = list.files(data_dir, pattern = "Rater1.nii.gz", full.names = TRUE),
-  Rater2 = list.files(data_dir, pattern = "Rater2.nii.gz", full.names = TRUE),
-  Rater3 = list.files(data_dir, pattern = "Rater3.nii.gz", full.names = TRUE),
-  Rater4 = list.files(data_dir, pattern = "Rater4.nii.gz", full.names = TRUE)
+  Rater1 = list.files(paste0(base_dir,"/edited"), pattern = "Rater1.nii.gz", full.names = TRUE),
+  Rater2 = list.files(paste0(base_dir,"/edited"), pattern = "Rater2.nii.gz", full.names = TRUE),
+  Rater3 = list.files(paste0(base_dir,"/edited"), pattern = "Rater3.nii.gz", full.names = TRUE),
+  Rater4 = list.files(paste0(base_dir,"/edited"), pattern = "Rater4.nii.gz", full.names = TRUE)
 )
 
 # Find max number of files
@@ -414,7 +393,7 @@ roi_data <- data.frame(
 )
 
 # Loop through the files and extract ROI values
-for (i in seq_along(rater1_files)) {
+for (i in seq_along(raters$Rater1)) {
         # Extract subject ID from the file name
         subject_id <- gsub(".*(HD[0-9]+).*", "\\1", raters$Rater1[i])
         
@@ -435,7 +414,7 @@ for (i in seq_along(rater1_files)) {
 }
 
 # Check the structure of the data
-print(head(roi_data))
+roi_data %>%  dim()
 
 # Calculate ICC using the irr package
 # ICC can be calculated for different models (e.g., single measures, average measures)
@@ -473,16 +452,18 @@ print(high_variance_subjects)
 cat("\nSubjects with extreme variance (potential outliers):\n")
 print(high_variance_outliers)
 
-###################################################################################################################################
-
-# DICE Coefficient
+###################################################################################################################################################*
+################################################################# DICE Coefficient ################################################################
+###################################################################################################################################################*
 ## Loading Libraries
-library(pacman)
-p_load(dplyr, skimr, ggplot2, tidyverse, cowplot, readxl, janitor, psych, oro.nifti)
+library(reshape2)
+library(ggplot2)
+library(oro.nifti)
+library(dplyr)
 
 ## Loading nifti files
 # List all files in the directory
-all_files <- list.files(base_dir, full.names = TRUE) # change to root path of your nifti files
+all_files <- list.files(paste0(base_dir,"/edited"), full.names = TRUE) # change to root path of your nifti files
 
 # Filter files based on _JB and _V
 R1_files <- grep("_Rater1.nii.gz", all_files, value = TRUE)
@@ -496,11 +477,7 @@ R2_files <- sort(R2_files)
 print(R1_files)
 print(R2_files)
 
-
-
-
 #Generating DICE Coefficient
-
 # Assuming R1_files and R2_files are vectors containing file paths for R1 and R2 masks
 
 # Function to calculate Dice Similarity Coefficient
@@ -510,7 +487,6 @@ calculate_dice_similarity <- function(rater1_mask, rater2_mask) {
         dice_coefficient <- sum(rater1_mask * rater2_mask) * 2 / (sum(rater1_mask) + sum(rater2_mask))
         return(dice_coefficient)
 }
-
 
 # Iterate through the pairs and calculate Dice Similarity Coefficient
 dice_coefficients <- sapply(1:length(R1_files), function(i) {
@@ -531,7 +507,6 @@ print(paste("Mean DICE coefficient: ", mean(dice_coefficients)))
 
 
 # Assuming R1_files and R2_files are vectors containing file paths for JB and V masks
-
 # Function to extract a unique ID from file paths
 extract_id_from_path <- function(file_path) {
         # Modify this function to extract the unique ID from your file paths
@@ -569,16 +544,18 @@ plot(dice_df$SubjectPair, dice_df$DiceCoefficient,
 write.csv(dice_df, file = "dice_coefficients.csv", row.names = FALSE)
 
 
-###################################################################################################################################
+###################################################################################################################################*
 # DICE for four Raters
-###################################################################################################################################
+###################################################################################################################################*
 
 # Load necessary libraries
+library(reshape2)
+library(ggplot2)
 library(oro.nifti)
 library(dplyr)
 
 # List all files in the directory
-all_files <- list.files(base_dir, full.names = TRUE)
+all_files <- list.files(paste0(base_dir,"/edited"), full.names = TRUE)
 
 # Filter files based on the rater labels
 R1_files <- grep("_Rater1.nii.gz", all_files, value = TRUE)
@@ -657,11 +634,7 @@ for (i in 1:length(R1_files)) {
                 Dice14 = dice14,
                 Dice23 = dice23,
                 Dice24 = dice24,
-                Dice34 = dice34,
-                MeanR1 = mean_r1,
-                MeanR2 = mean_r2,
-                MeanR3 = mean_r3,
-                MeanR4 = mean_r4
+                Dice34 = dice34
         )
 }
 
@@ -671,21 +644,8 @@ dice_df <- do.call(rbind, dice_results)
 # Print the results
 print(dice_df)
 
-# Calculate overall mean Dice coefficients
-mean_dice <- colMeans(dice_df[, grep("Dice", colnames(dice_df))])
-print(mean_dice)
-
-# Export results to a CSV
-write.csv(dice_df, file = "/mnt/hdd/MT/HARMY/HARMY_PVS/derivatives/Baseline/Rater/dice_coefficients_4_raters.csv", row.names = FALSE)
-
-# Plot Dice coefficients
-library(reshape2)
-library(ggplot2)
-# Melt the dice_df to transform it into a long format
-melted_dice_df <- melt(dice_df, id.vars = "SubjectID")
-
 # Plot Dice coefficients as a boxplot
-ggplot(melted_dice_df, aes(x = variable, y = value, fill = variable)) +
+ggplot(reshape2::melt(dice_df, id.vars = "SubjectID"), aes(x = variable, y = value, fill = variable)) +
         geom_boxplot() +
         labs(
                 title = "Distribution of Dice Coefficients Across Raters",
@@ -699,4 +659,211 @@ ggplot(melted_dice_df, aes(x = variable, y = value, fill = variable)) +
         )
 
 
+###################################################################################################################################################*
+############################################## Full Pipeline to revert and process ICC & DICE###############################################
+###################################################################################################################################################*
+process_iccdice <- function(base_dir, csv_data_path) {
+  library(data.table)
+  library(stringr)
+  library(fs)
+  library(irr)
+  library(dplyr)
+  library(oro.nifti)
+  library(reshape2)
+  library(ggplot2)
+  
+  # Remove trailing slash from base_dir if it exists
+  base_dir <- sub("/$", "", base_dir)
+  
+  # Read the CSV file
+  csv_data <- read.csv(csv_data_path, stringsAsFactors = FALSE)
+  
+  # Create edited folder at the same level as rater folders
+  edited_dir <- file.path(base_dir, "edited")
+  
+  # Function to safely create directory
+  safe_mkdir <- function(path) {
+    if (!dir.exists(path)) {
+      dir.create(path, recursive = TRUE)
+    }
+  }
+  
+  # Create edited directory
+  safe_mkdir(edited_dir)
+  
+  # Function to safely move/rename files
+  safe_rename <- function(from, to) {
+    if (file.exists(from)) {
+      safe_mkdir(dirname(to))
+      file.rename(from, to)
+      return(TRUE)
+    }
+    return(FALSE)
+  }
+  
+  # Function to format edited filename
+  format_edited_filename <- function(original_subject, rater) {
+    sprintf("%s_ses-01_PVS_All_ROIs_edited_%s.nii.gz", original_subject, rater)
+  }
+  
+  # Initialize directory mappings list
+  dir_mappings <- list()
+  
+  # Process each row in the CSV
+  for (i in 1:nrow(csv_data)) {
+    anonymized_filename <- csv_data$Anonymized_Filename[i]
+    rater <- csv_data$Rater[i]
+    original_filename <- csv_data$Original_Filename[i]
+    
+    # Skip header if present
+    if (anonymized_filename == "Anonymized_Filename") next
+    
+    # Extract subject information
+    subject_rater <- paste(unlist(strsplit(anonymized_filename, "_"))[1:2], collapse = "_")
+    original_subject <- unlist(strsplit(original_filename, "_"))[1]
+    
+    # Get the old directory path
+    old_dir <- file.path(base_dir, rater, subject_rater)
+    
+    # If the directory exists, process all files in it
+    if (dir.exists(old_dir)) {
+      files <- list.files(old_dir, pattern = "\\.nii\\.gz$", full.names = TRUE)
+      
+      for (file in files) {
+        filename <- basename(file)
+        
+        if (grepl("edited", filename)) {
+          new_filename <- format_edited_filename(original_subject, rater)
+          new_file_path <- file.path(edited_dir, new_filename)
+        } else {
+          new_filename <- sub(subject_rater, original_subject, filename)
+          new_file_path <- file.path(base_dir, rater, original_subject, new_filename)
+        }
+        
+        safe_mkdir(dirname(new_file_path))
+        
+        if (safe_rename(file, new_file_path)) {
+          cat(sprintf("Renamed and moved file: %s to %s\n", file, new_file_path))
+        } else {
+          cat(sprintf("Failed to rename file: %s\n", file))
+        }
+      }
+      
+      dir_mappings[[old_dir]] <- file.path(base_dir, rater, original_subject)
+    }
+  }
+  
+  # Remove empty source directories
+  for (old_dir in names(dir_mappings)) {
+    if (dir.exists(old_dir) && length(list.files(old_dir)) == 0) {
+      unlink(old_dir, recursive = TRUE)
+      cat(sprintf("Removed empty directory: %s\n", old_dir))
+    }
+  }
+  
+  # Process for FOUR RATERS
+  raters <- list(
+    Rater1 = list.files(paste0(base_dir, "/edited"), pattern = "Rater1.nii.gz", full.names = TRUE),
+    Rater2 = list.files(paste0(base_dir, "/edited"), pattern = "Rater2.nii.gz", full.names = TRUE),
+    Rater3 = list.files(paste0(base_dir, "/edited"), pattern = "Rater3.nii.gz", full.names = TRUE),
+    Rater4 = list.files(paste0(base_dir, "/edited"), pattern = "Rater4.nii.gz", full.names = TRUE)
+  )
+  
+  max_files <- max(sapply(raters, length))
+  mismatched <- names(raters)[sapply(raters, length) != max_files]
+  
+  if (length(mismatched) > 0) {
+    cat("Raters with mismatched file counts:", paste(mismatched, collapse = ", "), "\n")
+  } else {
+    cat("All raters have the same number of files.\n")
+  }
+  
+  # Function to binarize >0 = 1 and extract ROI values
+  extract_roi_values <- function(file) {
+    nii <- readNIfTI(file, reorient = FALSE)
+    nii[nii > 0] <- 1
+    mean(nii)
+  }
+  
+  roi_data <- data.frame(
+    Subject = character(),
+    Rater1 = numeric(),
+    Rater2 = numeric(),
+    Rater3 = numeric(),
+    Rater4 = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (i in seq_along(raters$Rater1)) {
+    subject_id <- gsub(".*(HD[0-9]+).*", "\\1", raters$Rater1[i])
+    roi_data <- rbind(roi_data, data.frame(
+      Subject = subject_id,
+      Rater1 = extract_roi_values(raters$Rater1[i]),
+      Rater2 = extract_roi_values(raters$Rater2[i]),
+      Rater3 = extract_roi_values(raters$Rater3[i]),
+      Rater4 = extract_roi_values(raters$Rater4[i])
+    ))
+  }
+  
+  icc_result <- icc(roi_data[, c("Rater1", "Rater2", "Rater3", "Rater4")], model = "twoway", type = "agreement", unit = "single")
+  print(icc_result)
+  
+  # Dice Coefficients
+  all_files <- list.files(paste0(base_dir, "/edited"), full.names = TRUE)
+  R1_files <- sort(grep("_Rater1.nii.gz", all_files, value = TRUE))
+  R2_files <- sort(grep("_Rater2.nii.gz", all_files, value = TRUE))
+  R3_files <- sort(grep("_Rater3.nii.gz", all_files, value = TRUE))
+  R4_files <- sort(grep("_Rater4.nii.gz", all_files, value = TRUE))
+  
+  binarize_mask <- function(mask) {
+    mask[mask > 0] <- 1
+    mask
+  }
+  
+  calculate_dice_similarity <- function(mask1, mask2) {
+    if (sum(mask1) == 0 & sum(mask2) == 0) {
+      return(1)
+    } else if (sum(mask1) == 0 | sum(mask2) == 0) {
+      return(0)
+    }
+    sum(mask1 * mask2) * 2 / (sum(mask1) + sum(mask2))
+  }
+  
+  dice_results <- list()
+  
+  for (i in 1:length(R1_files)) {
+    rater1_mask <- binarize_mask(readNIfTI(R1_files[i], reorient = FALSE))
+    rater2_mask <- binarize_mask(readNIfTI(R2_files[i], reorient = FALSE))
+    rater3_mask <- binarize_mask(readNIfTI(R3_files[i], reorient = FALSE))
+    rater4_mask <- binarize_mask(readNIfTI(R4_files[i], reorient = FALSE))
+    
+    dice_results[[i]] <- data.frame(
+      SubjectID = basename(R1_files[i]),
+      Dice12 = calculate_dice_similarity(rater1_mask, rater2_mask),
+      Dice13 = calculate_dice_similarity(rater1_mask, rater3_mask),
+      Dice14 = calculate_dice_similarity(rater1_mask, rater4_mask),
+      Dice23 = calculate_dice_similarity(rater2_mask, rater3_mask),
+      Dice24 = calculate_dice_similarity(rater2_mask, rater4_mask),
+      Dice34 = calculate_dice_similarity(rater3_mask, rater4_mask)
+    )
+  }
+  
+  dice_df <- do.call(rbind, dice_results)
+  print(dice_df)
+  
+  ggplot(reshape2::melt(dice_df, id.vars = "SubjectID"), aes(x = variable, y = value, fill = variable)) +
+    geom_boxplot() +
+    labs(
+      title = "Distribution of Dice Coefficients Across Raters",
+      x = "Rater Pairs",
+      y = "Dice Coefficient"
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+}
 
+
+process_iccdice("/mnt/hdd/MT/HARMY/HARMY_PVS/derivatives/Baseline/RaterSets_50Subjs/", "/mnt/hdd/MT/HARMY/HARMY_PVS/derivatives/Baseline/Rater/HarmyRater_file_mapping.csv")
