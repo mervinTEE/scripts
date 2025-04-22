@@ -1,6 +1,6 @@
 # Set root folder
-ROOTFOLDER=/home/admin/Desktop/MRI/test
-NEWFOLDER=/home/admin/Desktop/MRI/output
+ROOTFOLDER=/mnt/hdd/MT/HARMY/HARMY_PVS/derivatives/PVS_Baseline
+NEWFOLDER=/mnt/hdd/MT/HARMY/HARMY_PVS/derivatives/PVS_Baseline_Edited_Files
 SUFFIX=_ori
 
 for FILE in "$ROOTFOLDER"/HD*/Segmentation/PVS/*.nii.gz; do
@@ -23,22 +23,9 @@ for FILE in "$ROOTFOLDER"/HD*/Segmentation/PVS/*.nii.gz; do
         mv "$FILE" "$NEWFILE"
         echo "Renamed $FILE to $NEWFILE"
 
-        # Example of using HD_ID to move files from NEWFOLDER
-        # Assuming you want to move files from NEWFOLDER/HD_ID/...
-        SOURCE_DIR="$NEWFOLDER/$HD_ID/Segmentation/PVS/"
-        if [[ -d "$SOURCE_DIR" ]]; then
-            for ALLROI in "$SOURCE_DIR"*_edited.nii.gz; do
-                if [[ -f "$ALLROI" ]]; then
-                    cp "$ALLROI" "$DIRNAME"
-                    echo "Copied $ALLROI to $DIRNAME"
-                fi
-            done
-        else
-            echo "Source directory $SOURCE_DIR does not exist."
-        fi
 
         # Add logic to collect "HDXXX_ses-01_PVS_All_ROIs_edited"
-        EDITED_DIR="/home/admin/Desktop/MRI/MT/HARMY_PVS/edited/$HD_ID/"
+        EDITED_DIR="/mnt/hdd/MT/HARMY/HARMY_PVS/derivatives/PVS_Baseline_Edited_Files/$HD_ID/"
         EDITED_FILE="${EDITED_DIR}${HD_ID}_ses-01_PVS_All_ROIs_edited.nii.gz"
         if [[ -f "$EDITED_FILE" ]]; then
             cp "$EDITED_FILE" "$DIRNAME"

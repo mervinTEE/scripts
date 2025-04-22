@@ -536,7 +536,7 @@ print(dice_df)
 print(paste("Mean DICE coefficient: ", mean(dice_coefficients)))
 
 # Plot Dice Coefficients
-plot(dice_df$SubjectPair, dice_df$DiceCoefficient,
+diceplot<- plot(dice_df$SubjectPair, dice_df$DiceCoefficient,
      xlab = "Subject Pair ID", ylab = "Dice Coefficient",
      main = "Dice Coefficients between R1 and R2")
 
@@ -709,55 +709,60 @@ process_iccdice <- function(base_dir, csv_data_path) {
   # Initialize directory mappings list
   dir_mappings <- list()
   
-  # Process each row in the CSV
-  for (i in 1:nrow(csv_data)) {
-    anonymized_filename <- csv_data$Anonymized_Filename[i]
-    rater <- csv_data$Rater[i]
-    original_filename <- csv_data$Original_Filename[i]
-    
-    # Skip header if present
-    if (anonymized_filename == "Anonymized_Filename") next
-    
-    # Extract subject information
-    subject_rater <- paste(unlist(strsplit(anonymized_filename, "_"))[1:2], collapse = "_")
-    original_subject <- unlist(strsplit(original_filename, "_"))[1]
-    
-    # Get the old directory path
-    old_dir <- file.path(base_dir, rater, subject_rater)
-    
-    # If the directory exists, process all files in it
-    if (dir.exists(old_dir)) {
-      files <- list.files(old_dir, pattern = "\\.nii\\.gz$", full.names = TRUE)
+  # Check if the "edited" directory is not empty
+  if (length(list.files(edited_dir, pattern = "\\.nii\\.gz$", full.names = TRUE)) > 0) {
+    cat("The 'edited' directory is not empty. Skipping file reverting steps.\n")
+  } else {
+    # Process each row in the CSV
+    for (i in 1:nrow(csv_data)) {
+      anonymized_filename <- csv_data$Anonymized_Filename[i]
+      rater <- csv_data$Rater[i]
+      original_filename <- csv_data$Original_Filename[i]
       
-      for (file in files) {
-        filename <- basename(file)
+      # Skip header if present
+      if (anonymized_filename == "Anonymized_Filename") next
+      
+      # Extract subject information
+      subject_rater <- paste(unlist(strsplit(anonymized_filename, "_"))[1:2], collapse = "_")
+      original_subject <- unlist(strsplit(original_filename, "_"))[1]
+      
+      # Get the old directory path
+      old_dir <- file.path(base_dir, rater, subject_rater)
+      
+      # If the directory exists, process all files in it
+      if (dir.exists(old_dir)) {
+        files <- list.files(old_dir, pattern = "\\.nii\\.gz$", full.names = TRUE)
         
-        if (grepl("edited", filename)) {
-          new_filename <- format_edited_filename(original_subject, rater)
-          new_file_path <- file.path(edited_dir, new_filename)
-        } else {
-          new_filename <- sub(subject_rater, original_subject, filename)
-          new_file_path <- file.path(base_dir, rater, original_subject, new_filename)
+        for (file in files) {
+          filename <- basename(file)
+          
+          if (grepl("edited", filename)) {
+            new_filename <- format_edited_filename(original_subject, rater)
+            new_file_path <- file.path(edited_dir, new_filename)
+          } else {
+            new_filename <- sub(subject_rater, original_subject, filename)
+            new_file_path <- file.path(base_dir, rater, original_subject, new_filename)
+          }
+          
+          safe_mkdir(dirname(new_file_path))
+          
+          if (safe_rename(file, new_file_path)) {
+            cat(sprintf("Renamed and moved file: %s to %s\n", file, new_file_path))
+          } else {
+            cat(sprintf("Failed to rename file: %s\n", file))
+          }
         }
         
-        safe_mkdir(dirname(new_file_path))
-        
-        if (safe_rename(file, new_file_path)) {
-          cat(sprintf("Renamed and moved file: %s to %s\n", file, new_file_path))
-        } else {
-          cat(sprintf("Failed to rename file: %s\n", file))
-        }
+        dir_mappings[[old_dir]] <- file.path(base_dir, rater, original_subject)
       }
-      
-      dir_mappings[[old_dir]] <- file.path(base_dir, rater, original_subject)
     }
-  }
-  
-  # Remove empty source directories
-  for (old_dir in names(dir_mappings)) {
-    if (dir.exists(old_dir) && length(list.files(old_dir)) == 0) {
-      unlink(old_dir, recursive = TRUE)
-      cat(sprintf("Removed empty directory: %s\n", old_dir))
+    
+    # Remove empty source directories
+    for (old_dir in names(dir_mappings)) {
+      if (dir.exists(old_dir) && length(list.files(old_dir)) == 0) {
+        unlink(old_dir, recursive = TRUE)
+        cat(sprintf("Removed empty directory: %s\n", old_dir))
+      }
     }
   }
   
@@ -805,8 +810,18 @@ process_iccdice <- function(base_dir, csv_data_path) {
     ))
   }
   
-  icc_result <- icc(roi_data[, c("Rater1", "Rater2", "Rater3", "Rater4")], model = "twoway", type = "agreement", unit = "single")
-  print(icc_result)
+  # Calculate variance for each subject
+  roi_data$Variance <- apply(roi_data[, c("Rater1", "Rater2", "Rater3", "Rater4")], 1, var)
+  
+  # Identify subjects with high disagreement using variance (top 25%)
+  variance_threshold <- quantile(roi_data$Variance, 0.75)
+  high_variance_subjects <- roi_data %>%
+    filter(Variance > variance_threshold) %>%
+    arrange(desc(Variance))
+  
+  # Calculate ICC
+  icc_results <- icc(roi_data[, c("Rater1", "Rater2", "Rater3", "Rater4")], model = "twoway", type = "agreement", unit = "single")
+  print(icc_results)
   
   # Dice Coefficients
   all_files <- list.files(paste0(base_dir, "/edited"), full.names = TRUE)
@@ -851,7 +866,7 @@ process_iccdice <- function(base_dir, csv_data_path) {
   dice_df <- do.call(rbind, dice_results)
   print(dice_df)
   
-  ggplot(reshape2::melt(dice_df, id.vars = "SubjectID"), aes(x = variable, y = value, fill = variable)) +
+  diceplot <- ggplot(reshape2::melt(dice_df, id.vars = "SubjectID"), aes(x = variable, y = value, fill = variable)) +
     geom_boxplot() +
     labs(
       title = "Distribution of Dice Coefficients Across Raters",
@@ -863,6 +878,14 @@ process_iccdice <- function(base_dir, csv_data_path) {
       legend.position = "none",
       axis.text.x = element_text(angle = 45, hjust = 1)
     )
+  
+  # Assign variables to global environment
+  assign("icc_results", icc_results, envir = .GlobalEnv)
+  assign("dice_results", dice_df, envir = .GlobalEnv)
+  assign("high_variance_subjects", high_variance_subjects, envir = .GlobalEnv)
+  assign("diceplot", diceplot, envir = .GlobalEnv)
+  
+  return(list(icc_results = icc_results, dice_results = dice_df, high_variance_subjects = high_variance_subjects, diceplot = diceplot))
 }
 
 
