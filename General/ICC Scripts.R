@@ -6,14 +6,14 @@ library(dplyr)   # For data manipulation
 library(tidyr)   # For data tidying
 
 # Directory paths
-SOURCE_DIR <- "/mnt/hdd/MT/NEURO_BMC/NEURO-WMH/derivatives/LST_MNI"
-DEST_DIR <- "/mnt/hdd/MT/NEURO_BMC/NEURO-WMH/derivatives/test"
+SOURCE_DIR <- "/mnt/hdd/MT/HARMY/HARMY_WMH/derivatives/Cross_sectional/LSTAI_Y4Y5/temp"
+DEST_DIR <- "/mnt/hdd/MT/HARMY/HARMY_WMH/derivatives/Cross_sectional/rater_y4y5"
 
 # Create destination directory if it doesn't exist
 dir_create(DEST_DIR)
 
 # Number of raters
-NUM_RATERS <- 4
+NUM_RATERS <- 1
 
 # Create rater directories
 for(i in 1:NUM_RATERS) {
@@ -25,14 +25,15 @@ csv_file <- file.path(DEST_DIR, "rater_file_mapping.csv")
 mapping_df <- data.frame(
   Anonymized_Filename = character(),
   Rater = character(),
-  Original_Filename = character()
+  Original_Filename = character(),
+  subid = character()
 )
 
 # Get all subject directories
 subjects <- dir_ls(SOURCE_DIR, type = "directory")
 
 # Randomly select 50 subject folders
-selected_subjects <- sample(subjects, 50)
+selected_subjects <- sample(subjects, 25)
 
 # Generate random numbers from 1 to 999
 numbers <- sample(1:999, length(selected_subjects) * NUM_RATERS)
@@ -55,11 +56,18 @@ for(subject in selected_subjects) {
     dir_create(dest_subject_dir)
     
     # Find all .nii.gz files in the subject directory
-    nii_files <- dir_ls(subject, glob = "*.nii.gz")
+    #nii_files <- dir_ls(subject, glob = "*.nii.gz")
+    nii_files <- dir_ls(
+      path = subject,
+      recurse = TRUE,
+      
+      regexp = "flair_(seg-lst|FLAIR)\\.nii\\.gz$"
+    )
     
     if(length(nii_files) > 0) {
       for(file in nii_files) {
         original_filename <- basename(file)
+        subid <- subject_id
         
         # Create new filename
         new_filename <- paste0(anonymized_subject, "_", 
@@ -75,7 +83,8 @@ for(subject in selected_subjects) {
         mapping_df <- rbind(mapping_df, data.frame(
           Anonymized_Filename = new_filename,
           Rater = paste0("Rater", rater),
-          Original_Filename = original_filename
+          Original_Filename = original_filename,
+          subid = subid
         ))
       }
     } else {

@@ -3,7 +3,7 @@ library(dplyr)
 library(tidyr)
 
 # Define the base directory
-base_dir <- "/mnt/hdd/MT/HARMY/HARMY_WMH/derivatives/LSTAI_BL"
+base_dir <- "/mnt/hdd/MT/HARMY/HARMY_WMH/derivatives/LSTAI_Y4Y5/"
 
 # Get a list of subject directories
 subject_dirs <- list.dirs(base_dir, recursive = FALSE, full.names = TRUE)
@@ -72,7 +72,7 @@ for (subject_dir in subject_dirs) {
 }
 
 # Define the output file path
-output_file <- "/mnt/hdd/MT/HARMY/HARMY_WMH/derivatives/LSTAI_BL/compiled_lesion_stats_BL.csv"
+output_file <- "/mnt/hdd/MT/HARMY/HARMY_WMH/derivatives/LSTAI_Y4Y5/compiled_lesion_stats_Y4Y5.csv"
 
 # Write the compiled data to a CSV file
 write.csv(compiled_data, output_file, row.names = FALSE)
