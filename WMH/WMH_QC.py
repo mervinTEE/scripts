@@ -11,6 +11,10 @@ def overlay_slices(flair_data, wmh_data, slices, alpha=0.7):
         flair_slice = flair_data[:, :, z]
         wmh_slice = wmh_data[:, :, z]
 
+        # Rotate slices 90° clockwise
+        flair_slice = np.rot90(flair_slice, k=-1)
+        wmh_slice   = np.rot90(wmh_slice, k=-1)
+
         # Red overlay for WMH
         overlay = np.zeros(flair_slice.shape + (3,), dtype=np.uint8)
         overlay[wmh_slice > 0] = [255, 0, 0]
@@ -58,12 +62,14 @@ for tp in tps:
 
     print(f"QC overlay for {subj} {tp}")
 
-    flair_img = nib.load(flair_file)
-    wmh_img = nib.load(wmh_file)
-    flair_data = flair_img.get_fdata()
-    wmh_data = wmh_img.get_fdata()
+    # Force canonical orientation (RAS+)
+    flair_img = nib.as_closest_canonical(nib.load(flair_file))
+    wmh_img   = nib.as_closest_canonical(nib.load(wmh_file))
 
-    # Choose 5 axial slices around middle
+    flair_data = flair_img.get_fdata()
+    wmh_data   = wmh_img.get_fdata()
+
+    # Choose 5 axial slices around middle (±10, ±20)
     z_mid = flair_data.shape[2] // 2
     slice_indices = [z_mid + i*10 for i in range(-2, 3)
                      if 0 <= z_mid + i*10 < flair_data.shape[2]]
@@ -75,6 +81,6 @@ for tp in tps:
     out_file = os.path.join(qc_dir, f"{subj}_{tp}_QC.jpg")
 
     save_concatenated(slices, out_file)
-    print(f"Saved: {out_file}")
+    print(f"✅ Saved: {out_file}")
 
-print("QC images complete. ")
+print("QC images complete.")
