@@ -29,7 +29,7 @@ def overlay_slices(flair_data, pv_data, dw_data, slices, alpha=0.7):
         overlay[pv_slice > 0] = [255, 0, 0]
         # Blue for DWMH
         overlay[dw_slice > 0] = [0, 0, 255]
-        # Magenta for overlap (priority over red/blue)
+        # Magenta for overlap
         overlap = (pv_slice > 0) & (dw_slice > 0)
         overlay[overlap] = [255, 0, 255]
 
@@ -51,11 +51,12 @@ def save_concatenated(slice_images, out_file):
     new_im.save(out_file, 'JPEG')
 
 if len(sys.argv) < 3:
-    print("Usage: python DWPV_QC_simple.py <BASE_DIR> <SUBJ_ID>")
+    print("Usage: python DWPV_QC_simple.py <BASE_DIR> <SUBJ_ID> [slice_offsets...]")
     sys.exit(1)
 
 base_dir = sys.argv[1]
 subj = sys.argv[2]
+slice_offsets = [int(s) for s in sys.argv[3:]]  # optional slice offsets
 tps = ["BL", "Y2", "Y4Y5"]
 
 for tp in tps:
@@ -81,10 +82,14 @@ for tp in tps:
     pv_data    = pv_img.get_fdata()
     dw_data    = dw_img.get_fdata()
 
-    # Choose 4 axial slices: midpoint and superior (+10, +20, +30)
+    # Define slices relative to midpoint
     z_mid = flair_data.shape[2] // 2
-    slice_indices = [z_mid + i for i in [0, 10, 20, 30]
-                     if 0 <= z_mid + i < flair_data.shape[2]]
+    if slice_offsets:
+        slice_indices = [z_mid + off for off in slice_offsets
+                         if 0 <= z_mid + off < flair_data.shape[2]]
+    else:
+        slice_indices = [z_mid, z_mid+10, z_mid+20, z_mid+30]
+        slice_indices = [z for z in slice_indices if z < flair_data.shape[2]]
 
     slices = overlay_slices(flair_data, pv_data, dw_data, slice_indices, alpha=0.7)
 
@@ -93,6 +98,6 @@ for tp in tps:
     out_file = os.path.join(qc_dir, f"{subj}_{tp}_DWPV_QC.jpg")
 
     save_concatenated(slices, out_file)
-    print(f"✅ Saved: {out_file}")
+    print(f"✅ Saved: {out_file} (slices {slice_indices})")
 
 print("QC images complete.")

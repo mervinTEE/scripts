@@ -1,7 +1,7 @@
 #!/bin/bash
-path=/mnt/hdd/MT/SPACE/SPACE_v2/SPACE_FS_V2
+path=/mnt/hdd/MT/NEURO_BMC/NEURO-HIPPO/subj
 sleep 1
-cd /mnt/hdd/MT/SPACE/SPACE_v2/SPACE_FS_V2
+cd /mnt/hdd/MT/NEURO_BMC/NEURO-HIPPO/subj
 echo "This bash script will create table from ?.stats files"
 echo "Written by Jamaan Alghamdi & Dr. Vanessa Sluming"
 echo "University of Liverpool"
@@ -17,8 +17,8 @@ sleep 1
 source $FREESURFER_HOME/SetUpFreeSurfer.sh
 sleep 1
 
-export SUBJECTS_DIR=/mnt/hdd/MT/SPACE/SPACE_v2/SPACE_FS_V2
-list="`ls -d SPAC*/`"
+export SUBJECTS_DIR=/mnt/hdd/MT/NEURO_BMC/NEURO-HIPPO/subj
+list="`ls -d NEURO*/`"
 asegstats2table --subjects $list --meas volume --skip --statsfile wmparc.stats --all-segs --tablefile wmparc_stats.txt
 asegstats2table --subjects $list --meas volume --skip --tablefile aseg_stats.txt
 aparcstats2table --subjects $list --hemi lh --meas volume --skip --tablefile aparc_volume_lh.txt

@@ -168,7 +168,7 @@ fixelconnectivity fixel_mask/ tracks_2_million_sift.tck matrix/
 ########################### STEP 19  #################################
 #        Smooth fixel data using fixel-fixel connectivity            #
 ######################################################################
-#TODO: NEXT STEP
+
 fixelfilter fd smooth fd_smooth -matrix matrix/
 fixelfilter log_fc smooth log_fc_smooth -matrix matrix/
 fixelfilter fdc smooth fdc_smooth -matrix matrix/
