@@ -1,0 +1,540 @@
+ROOTFOLDER=/home/admin/Desktop/MRI/FBATest
+SUB=GENI001
+
+########### BIDS #####################
+
+dcm2bids -d $ROOTFOLDER/sourcedata/GENI001 -p GENI001 -o $ROOTFOLDER/rawdata -c $ROOTFOLDER/code/dcm2bids_config.json --auto_extract_entities
+
+######## FBA Analysis Steps #########
+### Please refer to the official MRtrix3 Documentation (https://mrtrix.readthedocs.io/en/latest/) ###
+
+######################### Step 0 Prepcossing #########################
+#	        Preprocessing Steps For Diffusion-Wieghted Imaging	   	 #
+######################################################################
+
+
+### The code below requires a 'for loop' to run through each subject. You can consider using the 'for each' command instead if writing a 'for loop' is a hassle. Examples of the 'for each' command can be found in subsequent step.
+
+# Also consider doing Gibbs denoising (using mrdegibbs). Check your diffusion data for ringing artifacts before deciding whether to use it
+mkdir -p $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/anat $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/fmap $ROOTFOLDER/tmp
+
+mrconvert -force $ROOTFOLDER/rawdata/sub-${SUB}/dwi/sub-${SUB}_dwi.nii.gz $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/raw_dwi.mif -fslgrad $ROOTFOLDER/rawdata/sub-${SUB}/dwi/sub-${SUB}_dwi.bvec $ROOTFOLDER/rawdata/sub-${SUB}/dwi/sub-${SUB}_dwi.bval
+
+dwidenoise -force -nthreads 8 $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/raw_dwi.mif $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_den.mif
+
+# mrdegibbs -force -nthreads 8 $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_denoised.mif $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_denoised_unringed.mif -axes 0,1
+
+# Calculate the residual image (raw_dwi - denoised_dwi) for QC purposes
+mrcalc $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/raw_dwi.mif $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_den.mif -subtract $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/residual.mif
+
+# Extract the b0 images from the diffusion data acquired in the PA direction
+dwiextract -force $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/raw_dwi.mif - -bzero | mrmath -force - mean $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/fmap/mean_b0_PA.mif -axis 3
+
+# Extracts the b0 images for diffusion data acquired in the AP direction
+# For the PA_BVEC and PA_BVAL files, they should be in the follwing format (assuming you extract only one volume):
+# AP_BVEC: 0 0 0
+# AP_BVAL: 0
+mrconvert -force $ROOTFOLDER/rawdata/sub-${SUB}/fmap/sub-${SUB}_dir-AP_B0.nii.gz $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/fmap/AP.mif # If the PA map contains only 1 image, you will need to add the option "-coord 3 0"
+
+mrconvert -force $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/fmap/AP.mif -fslgrad /$ROOTFOLDER/rawdata/sub-${SUB}/fmap/sub-${SUB}_dir-AP_B0.bvec $ROOTFOLDER/rawdata/sub-${SUB}/fmap/sub-${SUB}_dir-AP_B0.bval - | mrmath - mean $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/fmap/mean_b0_AP.mif -axis 3
+
+# Concatenates the b0 images from AP and PA directions to create a paired b0 image
+mrcat -force $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/fmap/mean_b0_PA.mif $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/fmap/mean_b0_AP.mif -axis 3 $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/fmap/b0_pair.mif
+
+# Removes last volume from DWI image (check if this is necessary, not for all DWI)
+mrconvert -force $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_den.mif -coord 3 0:123 $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_den_dir124.mif
+
+# Runs the dwipreproc command, which is a wrapper for eddy and topup.
+# --slm=none for single/multi-shell, linear for single-shell
+# nocleanup to keep tmp for motion QC
+dwifslpreproc -force -nthreads 8  -scratch $ROOTFOLDER/tmp/${SUB} $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_den_dir124.mif $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_den_preproc.mif -nocleanup -pe_dir PA -rpe_pair -se_epi $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/fmap/b0_pair.mif -eddy_options " --slm=none --data_is_shelled"
+
+# Performs bias field correction. Needs ANTs to be installed in order to use the "ants" option (use "fsl" otherwise)
+dwibiascorrect -force -nthreads 8 -scratch $ROOTFOLDER/tmp/${SUB} ants $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_den_preproc.mif $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_den_preproc_unbiased.mif -bias $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/bias.mif
+
+# Create a mask for future processing steps
+dwi2mask -force $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/dwi_den_preproc_unbiased.mif $ROOTFOLDER/derivatives/MRtrix3/sub-${SUB}/dwi/mask.mif
+
+######################### Step 0.1 Prepcossing #######################
+#	                       Check for motion	                    	 #
+######################################################################
+OUTPUT_FILE="$ROOTFOLDER/derivatives/DTI_motionQC.csv"
+
+# Initialize the CSV file
+echo "SubjectID,PercentageOutliers" > $OUTPUT_FILE
+
+# Loop over each subject folder
+for dir in $ROOTFOLDER/tmp/*; do
+    # Extract the subject ID from the directory name
+    SUB=$(basename $dir)
+    
+    # Change to the subject's tmp directory
+    cd $ROOTFOLDER/tmp/$SUB || continue
+    totalSlices=$(mrinfo dwi.mif | grep Dimensions | awk '{print $6 * $8}')
+    totalOutliers=$(awk '{ for(i=1;i<=NF;i++)sum+=$i } END { print sum }' dwi_post_eddy.eddy_outlier_map)
+    percentageOutliers=$(echo "scale=5; ($totalOutliers / $totalSlices * 100)/1" | bc)
+    
+    # Append the results to the CSV file
+    echo "$SUB,$percentageOutliers" >> $OUTPUT_FILE
+    
+    # Return to the previous directory
+    cd $ROOTFOLDER
+done
+
+----------------------------------------------------------------------
+######################################################################
+#	                 Fixel-Based Analysis	   	                     #
+######################################################################
+----------------------------------------------------------------------
+
+########################### STEP 1 ###################################
+#	        Computing (average) tissue response functions	   	     #
+######################################################################
+
+THREADS=5
+ROOTFOLDER=$ROOTFOLDER/derivatives/MRtrix3
+
+for_each -force -nthreads 8 $ROOTFOLDER/* : dwi2response dhollander -force IN/dwi/dwi_den_preproc_unbiased.mif IN/dwi/response_wm.txt IN/dwi/response_gm.txt IN/dwi/response_csf.txt
+
+# Create a group average folder to store the group average, if not you will encounter false errors from Step 2 onwards.
+mkdir -p /home/admin/Desktop/MRI/FBATest/derivatives/group_average_response
+
+responsemean $ROOTFOLDER/*/dwi/response_wm.txt /home/admin/Desktop/MRI/FBATest/derivatives/group_average_response/group_average_response_wm.txt
+
+responsemean $ROOTFOLDER/*/dwi/response_gm.txt /home/admin/Desktop/MRI/FBATest/derivatives/group_average_response/group_average_response_gm.txt
+
+responsemean $ROOTFOLDER/*/dwi/response_csf.txt /home/admin/Desktop/MRI/FBATest/derivatives/group_average_response/group_average_response_csf.txt
+
+########################### STEP 2 ###################################
+#                   Upsampling DW Images to 1.25mm isotropic        #
+######################################################################
+
+
+for_each -force -nthreads 8 $ROOTFOLDER/* : mrgrid -force IN/dwi/dwi_den_preproc_unbiased.mif regrid -voxel 1.25 IN/dwi/dwi_den_preproc_unbiased_upsampled.mif
+
+########################### STEP 3 ###################################
+#                   Compute upsampled brain mask images             #
+######################################################################
+
+for_each -force -nthreads 8 $ROOTFOLDER/* : dwi2mask IN/dwi/dwi_den_preproc_unbiased_upsampled.mif IN/dwi/dwi_mask_upsampled.mif
+
+########################## QC Step 1 #################################
+#                   View Masks + Check all parts included            #
+######################################################################
+
+# download all the masks to another folder then use mrview to view each mask
+
+########################### STEP 4 ###################################
+#                   Compute FOD images                               #
+######################################################################
+GRPFOLDER=/home/admin/Desktop/MRI/FBATest/derivatives/group_average_response
+
+for_each -force -nthreads 8 $ROOTFOLDER/* : dwi2fod -force msmt_csd IN/dwi/dwi_den_preproc_unbiased_upsampled.mif $GRPFOLDER/group_average_response_wm.txt IN/dwi/wmfod.mif $GRPFOLDER/group_average_response_gm.txt IN/dwi/gm.mif  $GRPFOLDER/group_average_response_csf.txt IN/dwi/csf.mif -mask IN/dwi/dwi_mask_upsampled.mif
+
+########################### Step 5 ###################################
+#                   Normalise FOD images                             #
+######################################################################
+
+for_each -force -nthreads 8 $ROOTFOLDER/* : mtnormalise -force IN/dwi/wmfod.mif IN/dwi/wmfod_norm.mif IN/dwi/gm.mif IN/dwi/gm_norm.mif IN/dwi/csf.mif IN/dwi/csf_norm.mif -mask IN/dwi/dwi_mask_upsampled.mif
+
+########################### Step 6 ###################################
+#                   Create FOD template                              #
+######################################################################
+
+ROOTFOLDER=/home/admin/Desktop/MRI/FBATest/derivatives
+
+mkdir -p $ROOTFOLDER/MRtrix3_group/template/fod_input
+mkdir $ROOTFOLDER/MRtrix3_group/template/mask_input
+mkdir $ROOTFOLDER/MRtrix3_group/template/gm_input
+mkdir $ROOTFOLDER/MRtrix3_group/template/csf_input
+
+dos2unix /home/admin/Desktop/MRI/FBATest/code/nci_directory.txt
+dos2unix /home/admin/Desktop/MRI/FBATest/code/mci_directory.txt
+
+# NCI list
+for_each $(cat /home/admin/Desktop/MRI/FBATest/code/nci_directory.txt) : \
+ln -srf "$ROOTFOLDER/MRtrix3/IN/dwi/wmfod_norm.mif" \
+"$ROOTFOLDER/MRtrix3_group/template/fod_input/IN.mif"
+
+for_each $(cat /home/admin/Desktop/MRI/FBATest/code/nci_directory.txt) : \
+ln -srf "$ROOTFOLDER/MRtrix3/IN/dwi/gm_norm.mif" \
+"$ROOTFOLDER/MRtrix3_group/template/gm_input/IN.mif"
+
+for_each $(cat /home/admin/Desktop/MRI/FBATest/code/nci_directory.txt) : \
+ln -srf "$ROOTFOLDER/MRtrix3/IN/dwi/csf_norm.mif" \
+"$ROOTFOLDER/MRtrix3_group/template/csf_input/IN.mif"
+
+for_each $(cat /home/admin/Desktop/MRI/FBATest/code/nci_directory.txt) : \
+ln -srf "$ROOTFOLDER/MRtrix3/IN/dwi/dwi_mask_upsampled.mif" \
+"$ROOTFOLDER/MRtrix3_group/template/mask_input/IN.mif"
+
+#MCI List
+for_each $(cat /home/admin/Desktop/MRI/FBATest/code/mci_directory.txt) : \
+ln -srf "$ROOTFOLDER/MRtrix3/IN/dwi/wmfod_norm.mif" \
+"$ROOTFOLDER/MRtrix3_group/template/fod_input/IN.mif"
+
+for_each $(cat /home/admin/Desktop/MRI/FBATest/code/mci_directory.txt) : \
+ln -srf "$ROOTFOLDER/MRtrix3/IN/dwi/gm_norm.mif" \
+"$ROOTFOLDER/MRtrix3_group/template/gm_input/IN.mif"
+
+for_each $(cat /home/admin/Desktop/MRI/FBATest/code/mci_directory.txt) : \
+ln -srf "$ROOTFOLDER/MRtrix3/IN/dwi/csf_norm.mif" \
+"$ROOTFOLDER/MRtrix3_group/template/csf_input/IN.mif"
+
+for_each $(cat /home/admin/Desktop/MRI/FBATest/code/mci_directory.txt) : \
+ln -srf "$ROOTFOLDER/MRtrix3/IN/dwi/dwi_mask_upsampled.mif" \
+"$ROOTFOLDER/MRtrix3_group/template/mask_input/IN.mif"
+
+population_template $ROOTFOLDER/MRtrix3_group/template/fod_input $ROOTFOLDER/MRtrix3_group/template/wmfod_template.mif $ROOTFOLDER/MRtrix3_group/template/gm_input $ROOTFOLDER/MRtrix3_group/template/gm_template.mif $ROOTFOLDER/MRtrix3_group/template/csf_input $ROOTFOLDER/MRtrix3_group/template/csf_template.mif -mask_dir $ROOTFOLDER/MRtrix3_group/template/mask_input -voxel_size 1.25 -nthreads 6
+
+########################### QC Step 2 ###################################
+#                     View FOD template                                 #
+#########################################################################
+
+# download the wmfod_template and mrview it
+
+############################## Step 7 ###################################
+#                    Register FOD images to FOD template                #
+#########################################################################
+
+# Register the FOD template to the MNI template, found in TractSeg (MNI_FA_template.nii.gz)
+# Download from here (https://github.com/MIC-DKFZ/TractSeg/blob/master/tractseg/resources/MNI_FA_template.nii.gz) to "$ROOTFOLDER/derivatives/MRtrix3_group/template/mni"
+
+# Convert to nii.gz and get the correct strides
+mrconvert $ROOTFOLDER/MRtrix3_group/template/wmfod_template.mif $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_bad_strides.nii.gz
+
+mrconvert $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_bad_strides.nii.gz $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template.nii.gz -strides -1,2,3,4
+
+# Get a b0 image
+mrconvert $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template.nii.gz $ROOTFOLDER/MRtrix3_group/template/mni/l0image.nii.gz -coord 3 0
+
+# remove nan for flirt
+fslmaths $ROOTFOLDER/MRtrix3_group/template/mni/l0image.nii.gz -nan $ROOTFOLDER/MRtrix3_group/template/mni/l0image_no_nan.nii.gz
+
+# flirt
+flirt -ref $ROOTFOLDER/MRtrix3_group/template/mni/MNI_FA_template.nii.gz -in $ROOTFOLDER/MRtrix3_group/template/mni/l0image_no_nan.nii.gz -out $ROOTFOLDER/MRtrix3_group/template/mni/l0image_MNI.nii.gz -omat $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_2_MNI.mat -dof 12
+
+# convert to mrtrix readable wrap
+transformconvert $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_2_MNI.mat $ROOTFOLDER/MRtrix3_group/template/mni/l0image_no_nan.nii.gz $ROOTFOLDER/MRtrix3_group/template/mni/MNI_FA_template.nii.gz flirt_import $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_2_MNI.txt
+
+# Transform FOD template to MNI space with reorientation of fod
+mrtransform -reorient_fod 1 $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template.nii.gz -linear $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_2_MNI.txt -template $ROOTFOLDER/MRtrix3_group/template/mni/MNI_FA_template.nii.gz $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_MNI_reorient.nii.gz
+
+# convert nii.gz to .mif file
+mrconvert $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_MNI_reorient.nii.gz $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_MNI_reorient.mif
+
+# generate subject to template warps using the study specific population template
+
+for_each -force -nthreads 8 $ROOTFOLDER/MRtrix3/* : mrregister IN/dwi/wmfod_norm.mif -mask1 IN/dwi/dwi_mask_upsampled.mif $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_MNI_reorient.mif -nl_warp IN/dwi/subject2template_warp.mif IN/dwi/template2subject_warp.mif
+
+############################## Step 8 ###################################
+#          Register brain masks for each subject to MNI space           #
+#########################################################################
+
+# transform brain mask to MNI space
+for_each -force -nthreads 8 $ROOTFOLDER/MRtrix3/* : mrtransform IN/dwi/dwi_mask_upsampled.mif -warp IN/dwi/subject2template_warp.mif -interp nearest -datatype bit IN/dwi/dwi_mask_in_template_space.mif
+
+# average masks to obtain a study-specific template mask
+mrmath $ROOTFOLDER/MRtrix3/*/dwi/dwi_mask_in_template_space.mif min $ROOTFOLDER/MRtrix3_group/template/mni/template_mask.mif -datatype bit
+
+
+############################## Step 9 ###################################
+#       Compute a white matter template analysis fixel mask             #
+#########################################################################
+
+# Compute a white matter template analysis fixel mask
+fod2fixel -mask $ROOTFOLDER/MRtrix3_group/template/mni/template_mask.mif -fmls_peak_value 0.06 $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_MNI_reorient.mif $ROOTFOLDER/MRtrix3_group/template/mni/fixel_mask
+
+
+############################## Step 10 ##################################
+#                Warp FOD images to template space                       #
+##########################################################################
+
+for_each -force -nthreads 8 $ROOTFOLDER/MRtrix3/* : mrtransform IN/dwi/wmfod_norm.mif -warp IN/dwi/subject2template_warp.mif -reorient_fod no IN/dwi/fod_in_template_space_NOT_REORIENTED.mif
+
+############################## Step 11 ###################################
+#  Segment FOD images to estimate fixels and apparent fibre density (FD) #
+##########################################################################
+for_each -force -nthreads 8 $ROOTFOLDER/MRtrix3/* : fod2fixel -mask $ROOTFOLDER/MRtrix3_group/template/mni/template_mask.mif IN/dwi/fod_in_template_space_NOT_REORIENTED.mif IN/dwi/fixel_in_template_space_NOT_REORIENTED -afd fd.mif
+
+############################## Step 12 ###################################
+#                                Reorient fixels                         #
+##########################################################################
+
+for_each -force -nthreads 8 $ROOTFOLDER/MRtrix3/* : fixelreorient IN/dwi/fixel_in_template_space_NOT_REORIENTED IN/dwi/subject2template_warp.mif IN/dwi/fixel_in_template_space
+
+############################## Step 13 ###################################
+#                Assign subject fixels to template fixels 			     #
+##########################################################################
+
+for_each -force $ROOTFOLDER/MRtrix3/* : fixelcorrespondence IN/dwi/fixel_in_template_space/fd.mif $ROOTFOLDER/MRtrix3_group/template/mni/fixel_mask $ROOTFOLDER/MRtrix3_group/template/fd PRE.mif
+
+############################## Step 14 ###################################
+#                Compute the fibre cross-section (FC) metric 			 #
+##########################################################################
+
+for_each -force $ROOTFOLDER/MRtrix3/* : warp2metric IN/dwi/subject2template_warp.mif -fc $ROOTFOLDER/MRtrix3_group/template/mni/fixel_mask $ROOTFOLDER/MRtrix3_group/template/fc NAME.mif
+
+# Calculate log(FC)
+
+mkdir $ROOTFOLDER/MRtrix3_group/template/log_fc
+cp $ROOTFOLDER/MRtrix3_group/template/fc/index.mif $ROOTFOLDER/MRtrix3_group/template/fc/directions.mif $ROOTFOLDER/MRtrix3_group/template/log_fc
+for_each -force $ROOTFOLDER/MRtrix3/* : mrcalc $ROOTFOLDER/MRtrix3_group/template/fc/NAME.mif -log $ROOTFOLDER/MRtrix3_group/template/log_fc/NAME.mif
+
+############################## Step 15 ###################################
+#          Compute the fibre density and cross-section (FDC) metric      #
+##########################################################################
+
+mkdir $ROOTFOLDER/MRtrix3_group/template/fdc
+cp $ROOTFOLDER/MRtrix3_group/template/fc/index.mif $ROOTFOLDER/MRtrix3_group/template/fdc
+cp $ROOTFOLDER/MRtrix3_group/template/fc/directions.mif $ROOTFOLDER/MRtrix3_group/template/fdc
+for_each -force $ROOTFOLDER/MRtrix3/* : mrcalc $ROOTFOLDER/MRtrix3_group/template/fd/NAME.mif $ROOTFOLDER/MRtrix3_group/template/fc/NAME.mif -mult $ROOTFOLDER/MRtrix3_group/template/fdc/NAME.mif
+
+############################## Step 16 ###################################
+#         Perform whole-brain fibre tractography on the FOD template     #
+##########################################################################
+
+tckgen -angle 22.5 -maxlen 250 -minlen 10 -power 1.0 $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_MNI_reorient.mif -seed_image $ROOTFOLDER/MRtrix3_group/template/mni/template_mask.mif -mask $ROOTFOLDER/MRtrix3_group/template/mni/template_mask.mif -select 20000000 -cutoff 0.06 $ROOTFOLDER/MRtrix3_group/template/tracks_20_million.tck
+
+### check the streamlines
+# tckedit "XXX/Tracks/tracks_2_million_sift.tck" -num 100000 "XXX/Tracks/tracks_100k_sift.tck"
+# mrview wmfod_template_MNI_reorient.mif and then load the reduced .tck file
+
+############################## Step 17 ###################################
+#                Reduce biases in tractogram densities                   #
+##########################################################################
+
+tcksift $ROOTFOLDER/MRtrix3_group/template/tracks_20_million.tck $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_MNI_reorient.mif $ROOTFOLDER/MRtrix3_group/template/tracks_2_million_sift.tck -term_number 2000000
+
+############################## Step 18 ###################################
+#                Generate fixel-fixel connectivity matrix                #
+##########################################################################
+
+fixelconnectivity $ROOTFOLDER/MRtrix3_group/template/mni/fixel_mask/ $ROOTFOLDER/MRtrix3_group/template/tracks_2_million_sift.tck $ROOTFOLDER/MRtrix3_group/template/matrix/
+
+############################## Step 19 ###################################
+#            Smooth fixel data with fixel-fixel connectivity             #
+##########################################################################
+
+fixelfilter $ROOTFOLDER/MRtrix3_group/template/fd smooth $ROOTFOLDER/MRtrix3_group/template/fd_smooth -matrix $ROOTFOLDER/MRtrix3_group/template/matrix/
+fixelfilter $ROOTFOLDER/MRtrix3_group/template/log_fc smooth $ROOTFOLDER/MRtrix3_group/template/log_fc_smooth -matrix $ROOTFOLDER/MRtrix3_group/template/matrix/
+fixelfilter $ROOTFOLDER/MRtrix3_group/template/fdc smooth $ROOTFOLDER/MRtrix3_group/template/fdc_smooth -matrix $ROOTFOLDER/MRtrix3_group/template/matrix/
+
+################################################################################################
+################################################################################################
+############################## Free-Water Analysis Component ###################################
+################################################################################################
+################################################################################################
+
+############################## FW Step 1.1 ########################################
+#           Remove the last value of .bvec and .bval because of NUS setting       #
+###################################################################################
+
+RAWFOLDER=/scratch2/eXXXXXXX/NEURO-DTI/rawdata
+
+# Loop through each subdirectory in rawdata
+for subfolder in $RAWFOLDER/*; do
+    # Define the path for the .bval file
+    bval_file="${subfolder}/dwi/$(basename $subfolder)_dwi.bvec"
+    
+    output_file="${subfolder}/dwi/$(basename $subfolder)_dwi_mod.bvec"
+    
+    # Apply the awk command to remove the last field
+    awk '{$NF=""; print $0}' "$bval_file" > "$output_file"
+done
+
+############################## FW Step 1.2 ########################################
+#           Prepare the masks to be used in DIPY                                  #
+###################################################################################
+
+# Get the mask for each subject
+for_each $ROOTFOLDER/* : mrgrid IN/dwi/dwi_mask_upsampled.mif regrid -vox 1.8 -interp nearest IN/dwi/dwi_mask_upsampled_downsampled.mif
+for_each $ROOTFOLDER/* : mrconvert IN/dwi/dwi_mask_upsampled_downsampled.mif IN/dwi/dwi_mask_upsampled_downsampled.nii.gz
+
+############################## FW Step 2 ##########################################
+#                               Get FW Maps                                       #
+###################################################################################
+
+# Get the freewater.py and run it
+python "/home/svu/eXXXXXXX/Codes/freewater.py"
+
+############################## FW Step 3 ##########################################
+#                               Wrap FW Maps                                      #
+###################################################################################
+
+# Wrap the FW maps to template space with the subject to tempalte wrap from FBA
+for_each $ROOTFOLDER/dipy/fw_sub_space/* : mrtransform IN '$ROOTFOLDER/dipy/fw_temp_space/PRE.nii.gz' -template '$ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_MNI_reorient.mif' -warp '$ROOTFOLDER/MRtrix3/PRE/dwi/subject2template_warp.mif'
+
+############################## FW Step 4 ##########################################
+#                               Create FW mask using wmfod template               #
+###################################################################################
+
+mrcalc $ROOTFOLDER/MRtrix3_group/template/mni/wmfod_template_MNI_reorient.mif 0.01 -ge $ROOTFOLDER/dipy/fw/wmfod_template_white_matter_mask_0.01.mif
+
+mrconvert $ROOTFOLDER/dipy/fw/wmfod_template_white_matter_mask_0.01.mif -coord 3 0 -axes 0,1,2 $ROOTFOLDER/dipy/fw/wmfod_template_white_matter_mask_0.01_3D.mif
+
+mrcalc -datatype bit $ROOTFOLDER/dipy/fw/wmfod_template_white_matter_mask_0.01_3D.mif $ROOTFOLDER/MRtrix3_group/template/mni/template_mask.mif -min $ROOTFOLDER/dipy/fw/wmfod_template_intersection.mif
+
+################################################################################################
+################################################################################################
+########################## End of Free-Water Analysis Component ################################
+################################################################################################
+################################################################################################
+
+############################## Step 19.9 ##########################################
+#                               Get Subject ICV                                   #
+###################################################################################
+
+mkdir $ROOTFOLDER/fs
+export SUBJECTS_DIR=$ROOTFOLDER/fs
+
+# Do auto recon till the steps needed for ICV without completing autorecon to save time
+ls $RAWFOLDER/*/anat/*.nii.gz | parallel --jobs 20 recon-all -s {.} -i {} -autorecon1
+
+for_each $ROOTFOLDER/fs/* : mri_segstats --subject NAME --etiv-only \> /scratch2/eXXXXXXX/NEURO-DTI/ICV_Volumes/PRE.txt
+
+cd "/scratch2/eXXXXXXX/NEURO-DTI/ICV_Volumes"
+
+find /scratch2/eXXXXXXX/NEURO-DTI/ICV_Volumes/* -iname "sub*.txt"
+
+for file in sub*.txt; do
+    etiv=$(grep "atlas_icv" "$file" | awk '{print $4}')
+    echo "$file $etiv" >> all_volume.txt
+done
+
+############################## Step 20 ############################################
+#            Generate statistical analysis group-wise comparison                  #
+###################################################################################
+
+# Do Pairwise Comparison for FBA and FW the codes below for steps 20a to c first labels the groups
+# that are being compared and then running the same codes. The codes that are similar can be built
+# into a function
+
+############################## Step 20a ########################################################
+#            Generate statistical analysis group-wise comparison (NCI and SCD)                 #
+################################################################################################
+
+THREADS=18
+
+group1="NCI"
+under="_"
+group2="SCD"
+group=$group1$under$group2
+
+GROUP_BASE="/scratch2/eXXXXXXX/NEURO-DTI/derivatives/MRtrix3_group/template/GLM/Between_Group/"
+GROUP_ROOTFOLDER=$GROUP_BASE$group
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/fd_smooth/ $GROUP_ROOTFOLDER/${group}_files_FBA.txt $GROUP_ROOTFOLDER/${group}_design_matrix_FD.txt "$GROUP_ROOTFOLDER/${group}_contrast_matrix_FD.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fd/
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/log_fc_smooth/ $GROUP_ROOTFOLDER/${group}_files_FBA.txt "$GROUP_ROOTFOLDER/${group}_design_matrix_log(FC)_FDC.txt" "$GROUP_ROOTFOLDER/${group}_contrast_matrix_log(FC)_FDC.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_log_fc/
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/fdc_smooth/ $GROUP_ROOTFOLDER/${group}_files_FBA.txt "$GROUP_ROOTFOLDER/${group}_design_matrix_log(FC)_FDC.txt" "$GROUP_ROOTFOLDER/${group}_contrast_matrix_log(FC)_FDC.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fdc/
+
+mkdir -p $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fw/
+
+mrclusterstats -nthreads $THREADS $ROOTFOLDER/dipy/fw_temp_space/${group}_files.txt $GROUP_ROOTFOLDER/${group}_design_matrix_FW.txt "$GROUP_ROOTFOLDER/${group}_contrast_matrix_FW.txt" $ROOTFOLDER/dipy/fw/wmfod_template_intersection.mif $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fw/
+
+############################## Step 20b ########################################################
+#            Generate statistical analysis group-wise comparison (NCI and MCI)                 #
+################################################################################################
+
+group1="NCI"
+under="_"
+group2="MCI"
+group=$group1$under$group2
+
+GROUP_BASE="/scratch2/eXXXXXXX/NEURO-DTI/derivatives/MRtrix3_group/template/GLM/Between_Group/"
+GROUP_ROOTFOLDER=$GROUP_BASE$group
+
+mkdir -p $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/fd_smooth/ $GROUP_ROOTFOLDER/${group}_files_FBA.txt $GROUP_ROOTFOLDER/${group}_design_matrix_FD.txt "$GROUP_ROOTFOLDER/${group}_contrast_matrix_FD.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fd/
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/log_fc_smooth/ $GROUP_ROOTFOLDER/${group}_files_FBA.txt "$GROUP_ROOTFOLDER/${group}_design_matrix_log(FC)_FDC.txt" "$GROUP_ROOTFOLDER/${group}_contrast_matrix_log(FC)_FDC.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_log_fc/
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/fdc_smooth/ $GROUP_ROOTFOLDER/${group}_files_FBA.txt "$GROUP_ROOTFOLDER/${group}_design_matrix_log(FC)_FDC.txt" "$GROUP_ROOTFOLDER/${group}_contrast_matrix_log(FC)_FDC.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fdc/
+
+mkdir -p $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fw/
+
+mrclusterstats -nthreads $THREADS $ROOTFOLDER/dipy/fw_temp_space/${group}_files.txt $GROUP_ROOTFOLDER/${group}_design_matrix_FW.txt "$GROUP_ROOTFOLDER/${group}_contrast_matrix_FW.txt" $ROOTFOLDER/dipy/fw/wmfod_template_intersection.mif $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fw/
+
+############################## Step 20c ########################################################
+#            Generate statistical analysis group-wise comparison (SCD and MCI)                 #
+################################################################################################
+
+group1="SCD"
+under="_"
+group2="MCI"
+group=$group1$under$group2
+
+GROUP_BASE="/scratch2/eXXXXXXX/NEURO-DTI/derivatives/MRtrix3_group/template/GLM/Between_Group/"
+GROUP_ROOTFOLDER=$GROUP_BASE$group
+
+mkdir -p $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/fd_smooth/ $GROUP_ROOTFOLDER/${group}_files_FBA.txt $GROUP_ROOTFOLDER/${group}_design_matrix_FD.txt "$GROUP_ROOTFOLDER/${group}_contrast_matrix_FD.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fd/
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/log_fc_smooth/ $GROUP_ROOTFOLDER/${group}_files_FBA.txt "$GROUP_ROOTFOLDER/${group}_design_matrix_log(FC)_FDC.txt" "$GROUP_ROOTFOLDER/${group}_contrast_matrix_log(FC)_FDC.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_log_fc/
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/fdc_smooth/ $GROUP_ROOTFOLDER/${group}_files_FBA.txt "$GROUP_ROOTFOLDER/${group}_design_matrix_log(FC)_FDC.txt" "$GROUP_ROOTFOLDER/${group}_contrast_matrix_log(FC)_FDC.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fdc/
+
+mkdir -p $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fw/
+
+mrclusterstats -nthreads $THREADS $ROOTFOLDER/dipy/fw_temp_space/${group}_files.txt $GROUP_ROOTFOLDER/${group}_design_matrix_FW.txt "$GROUP_ROOTFOLDER/${group}_contrast_matrix_FW.txt" $ROOTFOLDER/dipy/fw/wmfod_template_intersection.mif $ROOTFOLDER/MRtrix3_group/template/btn_group_norm/${group}/${group}_domain_stats_fw/
+
+############################## Step 21 ############################################
+#            Generate statistical analysis cognition                              #
+###################################################################################
+
+# Similarly, you will just need to set the domain, and then run the same code based on the  number of domains
+
+############################## Step 21a ###########################################
+#            Generate statistical analysis global cognition                       #
+###################################################################################
+
+DOMAIN="Global"
+
+COG_BASE="/scratch2/eXXXXXXX/NEURO-DTI/derivatives/MRtrix3_group/template/GLM/Cognitive_Domain_Norm/"
+COG_ROOTFOLDER=$COG_BASE$DOMAIN
+
+mkdir -p $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/fd_smooth/ $COG_ROOTFOLDER/Indiv_domain_Cog_files_FBA.txt $COG_ROOTFOLDER/Indiv_domain_design_matrix_FD.txt "$COG_ROOTFOLDER/Indiv_domain_contrast_matrix_FD.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}/${DOMAIN}_domain_stats_fd/
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/log_fc_smooth/ $COG_ROOTFOLDER/Indiv_domain_Cog_files_FBA.txt "$COG_ROOTFOLDER/Indiv_domain_design_matrix_log(FC)_FDC.txt" "$COG_ROOTFOLDER/Indiv_domain_contrast_matrix_log(FC)_FDC.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}/${DOMAIN}_domain_stats_log_fc/
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/fdc_smooth/ $COG_ROOTFOLDER/Indiv_domain_Cog_files_FBA.txt "$COG_ROOTFOLDER/Indiv_domain_design_matrix_log(FC)_FDC.txt" "$COG_ROOTFOLDER/Indiv_domain_contrast_matrix_log(FC)_FDC.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}/${DOMAIN}_domain_stats_fdc/
+
+mkdir -p $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}/${DOMAIN}_domain_stats_fw/
+
+mrclusterstats -nthreads $THREADS $ROOTFOLDER/dipy/fw_temp_space/Global_Cog_files.txt "$COG_ROOTFOLDER/Indiv_domain_design_matrix_FW.txt" "$COG_ROOTFOLDER/Indiv_domain_contrast_matrix_FW.txt" $ROOTFOLDER/dipy/fw/wmfod_template_intersection.mif $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}/${DOMAIN}_domain_stats_fw/
+
+############################## Step 21b ###########################################
+#            Generate statistical analysis domain specific                        #
+###################################################################################
+
+COG_BASE="/scratch2/eXXXXXXX/NEURO-DTI/derivatives/MRtrix3_group/template/GLM/Cognitive_Domain_Norm/"
+
+# Set the domain, one at a time, and run the codes bwlow
+DOMAIN="Verbal_Memory"
+DOMAIN="Visual_Memory"
+DOMAIN="Attention"
+DOMAIN="EF"
+DOMAIN="Visuoconstruction"
+DOMAIN="Visuomotor"
+DOMAIN="Language"
+
+# Repeat the codes below for each domain above
+COG_ROOTFOLDER=$COG_BASE$DOMAIN
+
+mkdir -p $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/fd_smooth/ $COG_ROOTFOLDER/Indiv_domain_Cog_files_FBA.txt $COG_ROOTFOLDER/Indiv_domain_design_matrix_FD.txt "$COG_ROOTFOLDER/Indiv_domain_contrast_matrix_FD.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}/${DOMAIN}_domain_stats_fd/
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/log_fc_smooth/ $COG_ROOTFOLDER/Indiv_domain_Cog_files_FBA.txt "$COG_ROOTFOLDER/Indiv_domain_design_matrix_log(FC)_FDC.txt" "$COG_ROOTFOLDER/Indiv_domain_contrast_matrix_log(FC)_FDC.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}/${DOMAIN}_domain_stats_log_fc/
+
+fixelcfestats -nthreads $THREADS $ROOTFOLDER/MRtrix3_group/template/fdc_smooth/ $COG_ROOTFOLDER/Indiv_domain_Cog_files_FBA.txt "$COG_ROOTFOLDER/Indiv_domain_design_matrix_log(FC)_FDC.txt" "$COG_ROOTFOLDER/Indiv_domain_contrast_matrix_log(FC)_FDC.txt" $ROOTFOLDER/MRtrix3_group/template/matrix/ $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}/${DOMAIN}_domain_stats_fdc/
+
+mkdir -p $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}/${DOMAIN}_domain_stats_fw/
+
+mrclusterstats -nthreads $THREADS $ROOTFOLDER/dipy/fw_temp_space/Global_Cog_files.txt "$COG_ROOTFOLDER/Indiv_domain_design_matrix_FW.txt" "$COG_ROOTFOLDER/Indiv_domain_contrast_matrix_FW.txt" $ROOTFOLDER/dipy/fw/wmfod_template_intersection.mif $ROOTFOLDER/MRtrix3_group/template/cog_domains_norm/${DOMAIN}/${DOMAIN}_domain_stats_fw/
